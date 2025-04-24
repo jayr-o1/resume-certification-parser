@@ -1,87 +1,147 @@
-# Skill Extraction from Images and PDFs
+# Resume and Certification Skill Analyzer
 
-This application extracts skills from resumes and certification documents, categorizing them as backed or unbacked skills with proficiency levels.
+A tool to extract skills from resumes and certifications, determine which skills are supported by certifications, and calculate proficiency levels.
 
-## Key Features
+## Features
 
--   **Structured Document Conversion**: Converts documents to a standardized JSON structure that preserves layout and identifies sections
--   **Extract text from PDF files and images** with layout preservation
--   **Identify skills from extracted text** with section awareness
--   **Categorize skills as backed** (with certifications) or unbacked
--   **Assign proficiency levels** (Beginner, Intermediate, Advanced, Expert)
--   **Calculate confidence scores** for extracted skills
--   **Enhanced certification detection** that better identifies certificates and links them to skills
--   **Improved OCR for images** with better preprocessing and layout analysis
+-   **Resume Analysis**: Extract skills from PDF resumes using NLP techniques
+-   **Certification Recognition**: Identify certifications and associate skills with them
+-   **Skill Proficiency Calculation**: Calculate proficiency levels for extracted skills
+-   **Certification Backing**: Determine which skills are backed by certifications
+-   **API Interface**: Upload files via REST API or web interface
+-   **Markdown & JSON Output**: Get results in structured formats
 
-## Setup
+## Quick Start
 
-1. Install dependencies: `pip install -r requirements.txt`
-2. Install Tesseract OCR for image processing
-3. Install spaCy language model: `python -m spacy download en_core_web_lg`
-4. Download NLTK data: `python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet')"`
+### Installation
 
-## Usage
+1. Clone this repository
+2. Install dependencies:
+    ```
+    pip install -r requirements.txt
+    ```
 
-### Basic Usage
+### Web Interface
+
+Start the API server:
 
 ```
-python main.py --input path/to/file.pdf --output results.json
+python api.py
 ```
 
-### Process all files in a directory
+Then open your browser to http://localhost:5000 to use the web interface.
+
+### Command Line Usage
+
+Process files from the command line:
+
+```
+python resume_analyzer.py --input examples/ --output results/
+```
+
+-   `--input`: Directory containing resume(s) and certification files (PDF, PNG, JPG)
+-   `--output`: Directory to save output files (will be created if it doesn't exist)
+
+### API Usage
+
+Start the API server:
+
+```
+python api.py
+```
+
+#### Extract Skills (POST /api/extract)
+
+Upload files using a multipart/form-data request:
 
 ```bash
-python main.py --input examples/ --batch
+curl -X POST http://localhost:5000/api/extract \
+  -F "files=@examples/Jayce Losero Resume.pdf" \
+  -F "files=@examples/Jayce Losero Python Certificate.png"
 ```
 
-### Additional options
+Response:
 
+```json
+{
+    "session_id": "12345678-1234-5678-1234-567812345678",
+    "message": "Successfully processed 2 files",
+    "result": {
+        "file": "Jayce Losero Resume.pdf",
+        "skills": [
+            {
+                "name": "Python",
+                "proficiency": "Expert",
+                "confidence": 0.92,
+                "is_technical": true,
+                "is_backed": true
+            }
+            // More skills...
+        ],
+        "certifications": ["Jayce Losero Python Certificate.png"]
+    },
+    "result_urls": {
+        "json": "/api/results/12345678-1234-5678-1234-567812345678/skills.json",
+        "markdown": "/api/results/12345678-1234-5678-1234-567812345678/skills_summary.md"
+    }
+}
 ```
---tesseract-path PATH  Path to Tesseract OCR executable (if not in PATH)
---skills-db PATH       Path to custom skills database JSON
---cert-db PATH         Path to custom certifications database JSON
---verbose              Enable detailed logging
---update-db            Update skill/certification databases with new entries
---force                Process files even if naming convention isn't followed
---use-structured-format Disable structured format converter (enabled by default)
+
+#### Get Results (GET /api/results/{session_id}/{filename})
+
+```bash
+curl -X GET http://localhost:5000/api/results/12345678-1234-5678-1234-567812345678/skills.json
+curl -X GET http://localhost:5000/api/results/12345678-1234-5678-1234-567812345678/skills_summary.md
 ```
-
-## Structured Format Benefits
-
-The application automatically:
-
--   Identifies document sections (education, experience, skills, etc.)
--   Preserves the layout and structure of the document
--   Improves extraction accuracy for well-formatted documents
--   Provides better context for skill extraction
-
-## Output Files
-
-When running in batch mode, the following files are created:
-
--   `batch_results.json`: Comprehensive results from all processed files
--   `consolidated_profile.json`: Consolidated profile with all skills and certifications
--   `extracted_text.json`: Raw extracted text from all documents
 
 ## Project Structure
 
--   `main.py`: Entry point for the application
--   `extractors/`: Contains modules for text extraction from different file types
-    -   `pdf_extractor.py`: Extracts text from PDF files
-    -   `image_extractor.py`: Extracts text from images using OCR
-    -   `structured_converter.py`: Converts documents to structured JSON format
--   `processors/`: Contains modules for processing and analyzing extracted text
-    -   `skill_extractor.py`: Skill extractor for structured documents
-    -   `certification_extractor.py`: Certification extractor for structured documents
-    -   `proficiency_calculator.py`: Calculates skill proficiency levels
--   `models/`: Contains data models and skill classification logic
--   `utils/`: Contains utility functions
+-   `api.py`: Web API for file processing
+-   `resume_analyzer.py`: Main CLI entry point
+-   `skills_extractor.py`: Skills extraction logic
+-   `summarize_skills.py`: Summary generation
+-   `extract_and_process.py`: Core processing logic
+-   `templates/index.html`: Web interface
+-   `examples/`: Example files for testing
+-   `results/`: Output directory for CLI results
+-   `api_results/`: Output directory for API results
+-   `uploads/`: Temporary directory for API file uploads
 
-## Implementation Details
+## Output Format
 
-This project uses open-source libraries for all text processing and skill extraction:
+### JSON Format (skills.json)
 
--   **spaCy**: For named entity recognition and text processing
--   **Transformers & Sentence-Transformers**: For semantic understanding of skills and certifications
--   **Scikit-learn**: For classification and confidence scoring
--   **NLTK**: For natural language preprocessing
+```json
+{
+    "file": "Resume.pdf",
+    "skills": [
+        {
+            "name": "Python",
+            "proficiency": "Expert",
+            "confidence": 0.92,
+            "is_technical": true,
+            "is_backed": true
+        }
+        // More skills...
+    ],
+    "certifications": ["Python Certificate.png"]
+}
+```
+
+### Markdown Format (skills_summary.md)
+
+The markdown summary contains:
+
+-   File name
+-   List of certifications
+-   Tables of technical and soft skills with proficiency levels
+-   Certification-backed skills are marked with ✓
+
+## Supported File Types
+
+-   Resumes: PDF
+-   Certifications: PDF, PNG, JPG, JPEG, TIFF
+
+## License
+
+MIT

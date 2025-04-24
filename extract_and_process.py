@@ -178,6 +178,7 @@ class SkillProcessor:
                     "name": canonical_name,
                     "context": self._get_context(doc, token),
                     "is_technical": canonical_name in self.technical_skills,
+                    "is_backed": False,  # Default to not backed
                     "source": "nlp_token"
                 }
                 extracted_skills.append(skill_dict)
@@ -191,6 +192,7 @@ class SkillProcessor:
                     "name": canonical_name,
                     "context": self._get_context(doc, chunk),
                     "is_technical": canonical_name in self.technical_skills,
+                    "is_backed": False,  # Default to not backed
                     "source": "nlp_chunk"
                 }
                 extracted_skills.append(skill_dict)
@@ -264,6 +266,7 @@ class SkillProcessor:
                             "name": canonical_name,
                             "context": context,
                             "is_technical": canonical_name in self.technical_skills,
+                            "is_backed": False,  # Default to not backed
                             "source": "pattern_match"
                         }
                         extracted_skills.append(skill_dict)
@@ -293,6 +296,28 @@ class SkillProcessor:
             deduplicated_skills.append(sorted_instances[0])
         
         return deduplicated_skills
+
+    def mark_backed_skills(self, resume_skills, certification_skills):
+        """
+        Mark skills that are backed by certifications
+        
+        Args:
+            resume_skills (list): List of skill dictionaries from resume
+            certification_skills (list): List of skill dictionaries from certifications
+            
+        Returns:
+            list: Updated resume skills with backed information
+        """
+        # Create a set of skill names from certifications
+        cert_skill_names = {skill["name"] for skill in certification_skills}
+        
+        # Mark resume skills as backed if they appear in certifications
+        for skill in resume_skills:
+            if skill["name"] in cert_skill_names:
+                skill["is_backed"] = True
+                logger.info(f"Marked skill {skill['name']} as backed by certification")
+        
+        return resume_skills
 
 
 class ProficiencyCalculator:
@@ -387,8 +412,31 @@ class ProficiencyCalculator:
                 "subject matter expert", "distinguished"
             ]
         }
+        
+        # Action verb indicators that indicate proficiency level
+        self.action_verb_indicators = {
+            "Beginner": [
+                "assisted", "helped", "observed", "learned", "studied", "participated", 
+                "followed", "understood", "familiar", "used"
+            ],
+            
+            "Intermediate": [
+                "implemented", "developed", "built", "created", "designed", "managed", 
+                "performed", "conducted", "handled", "organized", "maintained", "deployed"
+            ],
+            
+            "Advanced": [
+                "led", "directed", "optimized", "enhanced", "improved", "analyzed", 
+                "architected", "mentored", "trained", "designed", "oversaw", "orchestrated"
+            ],
+            
+            "Expert": [
+                "pioneered", "innovated", "revolutionized", "transformed", "established", 
+                "authored", "invented", "discovered", "mastered", "spoke", "published"
+            ]
+        }
     
-    def calculate_proficiency(self, skill_name, context, certification_text=None):
+    def calculate_proficiency(self, skill_name, context, certification_text=None, is_backed=False):
         """
         Calculate proficiency level for a skill based on its context
         
@@ -396,6 +444,7 @@ class ProficiencyCalculator:
             skill_name (str): The name of the skill
             context (str): The context around the skill mention
             certification_text (str, optional): Text from certifications
+            is_backed (bool): Whether the skill is backed by a certification
             
         Returns:
             tuple: (proficiency_level, confidence_score)
@@ -415,6 +464,14 @@ class ProficiencyCalculator:
                 if re.search(pattern, context, re.IGNORECASE):
                     scores[level] += 2  # Duration is a stronger indicator
         
+        # Score based on action verbs in context
+        for level, verbs in self.action_verb_indicators.items():
+            for verb in verbs:
+                # Look for verbs near the skill name
+                pattern = r'(?i)(?:' + re.escape(verb) + r'.*?\b' + re.escape(skill_name) + r'\b|\b' + re.escape(skill_name) + r'\b.*?' + re.escape(verb) + r')'
+                if re.search(pattern, context, re.IGNORECASE):
+                    scores[level] += 1.5  # Action verbs are strong indicators
+        
         # If certification text is provided, check for certification indicators
         if certification_text:
             for level, indicators in self.certification_indicators.items():
@@ -424,11 +481,26 @@ class ProficiencyCalculator:
                     if re.search(pattern, certification_text, re.IGNORECASE):
                         scores[level] += 3  # Certification indicators are strongest
         
+        # If skill is backed by certification, boost scores for Intermediate and above
+        if is_backed:
+            scores["Beginner"] += 1
+            scores["Intermediate"] += 2
+            scores["Advanced"] += 1
+            logger.info(f"Boosting proficiency scores for backed skill: {skill_name}")
+            
+        # Default boost for all skills to prevent everything being classified as Beginner
+        # This assumes people wouldn't list skills they're not at least somewhat proficient in
+        scores["Intermediate"] += 1
+        
+        # For technical skills, assume a higher baseline
+        if skill_name in ["Python", "Java", "JavaScript", "SQL", "C++", "C#"]:
+            scores["Intermediate"] += 1
+        
         # Determine the proficiency level with the highest score
         max_score = max(scores.values())
         if max_score == 0:
-            # Default to Beginner if no indicators found
-            return "Beginner", 0.5
+            # Default to Intermediate if no indicators found
+            return "Intermediate", 0.6
         
         # Get the highest scoring level
         proficiency_level = max(scores.items(), key=lambda x: x[1])[0]
@@ -437,9 +509,12 @@ class ProficiencyCalculator:
         sorted_scores = sorted(scores.values(), reverse=True)
         if len(sorted_scores) > 1:
             score_diff = sorted_scores[0] - sorted_scores[1]
-            confidence = min(0.5 + (score_diff * 0.1), 1.0)
+            confidence = min(0.6 + (score_diff * 0.1), 1.0)
         else:
             confidence = 0.7
+        
+        logger.info(f"Calculated proficiency for {skill_name}: {proficiency_level} (Confidence: {confidence:.2f})")
+        logger.info(f"Scores: {scores}")
         
         return proficiency_level, confidence
 
@@ -494,7 +569,8 @@ class DocumentProcessor:
             text = ""
             with pdfplumber.open(pdf_path) as pdf:
                 for page in pdf.pages:
-                    text += page.extract_text() or ""
+                    page_text = page.extract_text() or ""
+                    text += page_text + "\n"
             return text
         except Exception as e:
             logger.error(f"Error extracting text from PDF {pdf_path}: {str(e)}")
@@ -513,10 +589,43 @@ class DocumentProcessor:
         try:
             image = Image.open(image_path)
             text = pytesseract.image_to_string(image)
+            
+            # Log more information about the extraction process
+            logger.info(f"Extracted {len(text)} characters from image")
+            logger.info(f"Image size: {image.size}")
+            
             return text
         except Exception as e:
             logger.error(f"Error extracting text from image {image_path}: {str(e)}")
             return ""
+
+    def is_resume(self, file_path):
+        """
+        Determine if a file is likely a resume
+        
+        Args:
+            file_path (str): Path to the file
+            
+        Returns:
+            bool: True if the file is likely a resume, False otherwise
+        """
+        return "resume" in file_path.lower()
+    
+    def is_certification(self, file_path):
+        """
+        Determine if a file is likely a certification
+        
+        Args:
+            file_path (str): Path to the file
+            
+        Returns:
+            bool: True if the file is likely a certification, False otherwise
+        """
+        lower_path = file_path.lower()
+        return ("cert" in lower_path or 
+                "certificate" in lower_path or 
+                "credential" in lower_path or 
+                "diploma" in lower_path)
 
 
 def parse_arguments():
@@ -569,15 +678,97 @@ def process_files(input_path, args):
             logger.error(f"No supported files found in directory: {input_path}")
             return all_results
         
-        # Process each file
-        for file_path in files:
-            file_results = process_single_file(file_path, document_processor, skill_processor, proficiency_calculator, args)
+        # Categorize files
+        resume_files = [f for f in files if document_processor.is_resume(f)]
+        cert_files = [f for f in files if document_processor.is_certification(f)]
+        other_files = [f for f in files if f not in resume_files and f not in cert_files]
+        
+        logger.info(f"Found {len(resume_files)} resume files, {len(cert_files)} certification files, and {len(other_files)} other files")
+        
+        # First, process certification files to get skills
+        cert_skills = []
+        cert_texts = {}
+        
+        for file_path in cert_files:
+            logger.info(f"Processing certification file: {file_path}")
+            extracted_text = document_processor.process_file(file_path)
+            
+            if not extracted_text:
+                logger.error(f"Failed to extract text from {file_path}")
+                continue
+            
+            cert_texts[file_path] = extracted_text
+            file_skills = skill_processor.extract_skills(extracted_text)
+            
+            logger.info(f"Extracted {len(file_skills)} skills from certification: {file_path}")
+            cert_skills.extend(file_skills)
+            
+            # Save certification results
+            processed_skills = []
+            for skill in file_skills:
+                # For certifications, automatically set a higher proficiency level
+                proficiency_level, confidence = proficiency_calculator.calculate_proficiency(
+                    skill["name"], skill["context"], certification_text=extracted_text
+                )
+                
+                skill_with_proficiency = {
+                    "name": skill["name"],
+                    "proficiency": proficiency_level,
+                    "confidence": confidence,
+                    "is_technical": skill.get("is_technical", True),
+                    "is_backed": True,  # Skills from certifications are inherently backed
+                    "source": skill.get("source", "certification")
+                }
+                
+                processed_skills.append(skill_with_proficiency)
+            
+            # Add to results
+            all_results[os.path.basename(file_path)] = {
+                "file": os.path.basename(file_path),
+                "file_type": "certification",
+                "skills": processed_skills,
+                "text_length": len(extracted_text)
+            }
+        
+        # Then, process resume files and mark backed skills
+        for file_path in resume_files:
+            # Process resume and mark skills that are backed by certifications
+            file_results = process_single_file(
+                file_path, 
+                document_processor, 
+                skill_processor, 
+                proficiency_calculator, 
+                args,
+                cert_skills=cert_skills,
+                cert_texts=cert_texts
+            )
+            
+            if file_results:
+                all_results[os.path.basename(file_path)] = file_results
+        
+        # Process any remaining files
+        for file_path in other_files:
+            file_results = process_single_file(
+                file_path, 
+                document_processor, 
+                skill_processor, 
+                proficiency_calculator, 
+                args
+            )
+            
             if file_results:
                 all_results[os.path.basename(file_path)] = file_results
     
     # Handle single file input
     elif os.path.isfile(input_path):
-        file_results = process_single_file(input_path, document_processor, skill_processor, proficiency_calculator, args)
+        file_results = process_single_file(
+            input_path, 
+            document_processor, 
+            skill_processor, 
+            proficiency_calculator, 
+            args
+        )
+        
         if file_results:
             all_results[os.path.basename(input_path)] = file_results
     
@@ -587,7 +778,7 @@ def process_files(input_path, args):
     return all_results
 
 
-def process_single_file(file_path, document_processor, skill_processor, proficiency_calculator, args):
+def process_single_file(file_path, document_processor, skill_processor, proficiency_calculator, args, cert_skills=None, cert_texts=None):
     """
     Process a single file to extract skills with proficiency levels
     
@@ -597,11 +788,18 @@ def process_single_file(file_path, document_processor, skill_processor, proficie
         skill_processor (SkillProcessor): Skill processor instance
         proficiency_calculator (ProficiencyCalculator): Proficiency calculator instance
         args (Namespace): Command line arguments
+        cert_skills (list, optional): Skills extracted from certifications
+        cert_texts (dict, optional): Texts extracted from certifications
         
     Returns:
         dict: Results containing extracted skills with proficiency levels
     """
     logger.info(f"Processing file: {file_path}")
+    
+    # Determine file type
+    is_resume = document_processor.is_resume(file_path)
+    is_certification = document_processor.is_certification(file_path)
+    file_type = "resume" if is_resume else "certification" if is_certification else "other"
     
     # Extract text from the document
     extracted_text = document_processor.process_file(file_path)
@@ -616,13 +814,25 @@ def process_single_file(file_path, document_processor, skill_processor, proficie
     if args.verbose:
         logger.info(f"Extracted {len(extracted_skills)} skills from {file_path}")
     
+    # If this is a resume and we have certification skills, mark backed skills
+    if is_resume and cert_skills:
+        extracted_skills = skill_processor.mark_backed_skills(extracted_skills, cert_skills)
+    
     # Calculate proficiency levels for each skill
     processed_skills = []
     for skill in extracted_skills:
+        # Get certification text for this skill if available
+        cert_text = ""
+        if cert_texts:
+            for cert_file, text in cert_texts.items():
+                if skill["name"].lower() in text.lower():
+                    cert_text += text + " "
+        
         proficiency_level, confidence = proficiency_calculator.calculate_proficiency(
             skill["name"], 
             skill["context"],
-            certification_text=extracted_text if "certification" in file_path.lower() else None
+            certification_text=cert_text if cert_text else None,
+            is_backed=skill.get("is_backed", False)
         )
         
         # Add proficiency information to the skill
@@ -631,19 +841,22 @@ def process_single_file(file_path, document_processor, skill_processor, proficie
             "proficiency": proficiency_level,
             "confidence": confidence,
             "is_technical": skill.get("is_technical", True),
+            "is_backed": skill.get("is_backed", False),
             "source": skill.get("source", "unknown")
         }
         
         processed_skills.append(skill_with_proficiency)
         
         if args.verbose:
-            logger.info(f"Skill: {skill['name']}, Proficiency: {proficiency_level}, Confidence: {confidence:.2f}")
+            backed_status = "Backed" if skill.get("is_backed", False) else "Unbacked"
+            logger.info(f"Skill: {skill['name']}, Proficiency: {proficiency_level}, Confidence: {confidence:.2f}, Status: {backed_status}")
     
     # Sort skills by name
     processed_skills.sort(key=lambda x: x["name"])
     
     return {
         "file": os.path.basename(file_path),
+        "file_type": file_type,
         "skills": processed_skills,
         "text_length": len(extracted_text)
     }
@@ -662,11 +875,49 @@ def save_results(results, output_path):
         output_path = "extracted_skills.json"
     
     try:
-        with open(output_path, 'w') as f:
-            json.dump(results, f, indent=2)
-        logger.info(f"Results saved to {output_path}")
+        # Get resume results
+        resume_results = None
+        for file_name, file_data in results.items():
+            if file_data.get("file_type") == "resume":
+                resume_results = file_data
+                break
+        
+        # If no resume was found, just use the first file's results
+        if not resume_results and results:
+            resume_results = next(iter(results.values()))
+        
+        # Get certification skills
+        cert_skills = []
+        for file_name, file_data in results.items():
+            if file_data.get("file_type") == "certification":
+                cert_skills.extend([skill["name"] for skill in file_data.get("skills", [])])
+        
+        # Create a focused output with just the resume skills
+        if resume_results:
+            focused_output = {
+                "file": resume_results["file"],
+                "skills": resume_results["skills"],
+                "certifications": list(set(cert_skills))
+            }
+            
+            with open(output_path, 'w') as f:
+                json.dump(focused_output, f, indent=2)
+            logger.info(f"Focused results saved to {output_path}")
+        else:
+            # If no resume was found, save the full results
+            with open(output_path, 'w') as f:
+                json.dump(results, f, indent=2)
+            logger.info(f"Full results saved to {output_path}")
+            
     except Exception as e:
         logger.error(f"Error saving results: {str(e)}")
+        # Fallback to saving the full results
+        try:
+            with open(output_path, 'w') as f:
+                json.dump(results, f, indent=2)
+            logger.info(f"Full results saved to {output_path} (fallback)")
+        except Exception as e2:
+            logger.error(f"Error saving fallback results: {str(e2)}")
 
 
 def main():
