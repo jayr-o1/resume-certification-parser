@@ -142,6 +142,39 @@ The markdown summary contains:
 -   Resumes: PDF
 -   Certifications: PDF, PNG, JPG, JPEG, TIFF
 
+## Tools, Models and Techniques
+
+### NLP and Machine Learning
+
+-   **spaCy**: Uses the `en_core_web_sm` or `en_core_web_md` language models for natural language processing
+-   **Named Entity Recognition**: Identifies potential skills from resume text
+-   **Context-aware Processing**: Analyzes surrounding text to understand skill context
+-   **Custom Skills Database**: Pre-defined technical and soft skills with variations for better matching
+-   **Proficiency Calculation**: Algorithm that uses context analysis to determine skill levels
+-   **Certification Verification**: Cross-references resume skills with certification documents
+
+### Document Processing
+
+-   **pdfplumber**: Extracts text content from PDF documents
+-   **pytesseract**: Performs OCR (Optical Character Recognition) on certification images
+-   **PIL/Pillow**: Processes images for text extraction
+-   **Regex Pattern Matching**: Identifies skill listings in various formats
+-   **Document Classification**: Automatically distinguishes between resumes and certifications
+
+### Web Technologies
+
+-   **Flask**: Powers the RESTful API and web interface
+-   **Multipart File Uploads**: Handles multiple document uploads
+-   **Session Management**: Maintains context across API requests
+-   **JSON & Markdown Processing**: Generates structured output in multiple formats
+
+### Development Tools
+
+-   **Modular Architecture**: Separation of concerns with specialized processor classes
+-   **Configurable Logging**: Detailed processing information for debugging and auditing
+-   **Command Line Interface**: Supports both CLI and API operation modes
+-   **Automated Cleanup**: Background thread for temporary file management
+
 ## License
 
 MIT
