@@ -1,0 +1,12 @@
+pdfplumber==0.10.3
+pytesseract==0.3.10
+Pillow==10.0.0
+opencv-python==4.8.0.76
+numpy==1.24.3
+spacy==3.6.1
+transformers==4.30.2
+sentence-transformers==2.2.2
+nltk==3.8.1
+scikit-learn==1.2.2
+python-dotenv==1.0.0
+# Don't forget to run: python -m spacy download en_core_web_sm 
