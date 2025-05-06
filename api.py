@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 import logging
 from extract_and_process import DocumentProcessor, SkillProcessor, ProficiencyCalculator
 from processors.skill_validator import SkillValidator
+from processors.sentence_skill_extractor import SentenceSkillExtractor
 
 # Configure logging
 logging.basicConfig(
@@ -152,7 +153,11 @@ def process_files(file_paths, output_dir):
     custom_db_path = os.path.join(os.path.dirname(__file__), 'data', 'skills_database.json')
     if not os.path.exists(custom_db_path):
         custom_db_path = None
+    
     skill_validator = SkillValidator(custom_db_path)  # Initialize the skill validator with db path
+    
+    # Initialize the sentence-based skill extractor
+    sentence_extractor = SentenceSkillExtractor(custom_db_path)
     
     # Initialize result containers
     all_skills = []
@@ -213,8 +218,16 @@ def process_files(file_paths, output_dir):
         if hasattr(proficiency_calculator, 'update_for_industry'):
             proficiency_calculator.update_for_industry(detected_industry)
         
-        # Extract skills with industry context
+        # Extract skills with industry context using traditional methods
         file_skills = skill_processor.extract_skills(extracted_text)
+        
+        # Additionally, extract skills from sentences in the resume
+        sentence_skills = sentence_extractor.extract_skills_from_text(extracted_text)
+        logger.info(f"Extracted {len(sentence_skills)} additional skills from sentences")
+        
+        # Combine skills from both extraction methods
+        file_skills.extend(sentence_skills)
+        
         logger.info(f"Extracted {len(file_skills)} skills from resume (industry: {detected_industry})")
         
         # Mark backed skills

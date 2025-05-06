@@ -37,7 +37,7 @@ class SkillValidator:
             # Parts of phrases
             "key", "core", "technical", "professional", "soft", "hard", "primary",
             "proficient in", "experience with", "expertise in", "knowledge of",
-            "familiar with", "worked with", "used",
+            "familiar with", "worked with", "used", "foundation", "foundations",
             
             # Resume section names
             "work experience", "education", "professional experience", "employment",
@@ -130,6 +130,20 @@ class SkillValidator:
         """
         # Convert to lowercase for comparison
         name_lower = skill_name.lower()
+        
+        # Special exception for known technical terms - always allow these
+        technical_exceptions = [
+            "database management", "database systems", "database management systems", 
+            "systems database management", "relational databases", "data modeling", 
+            "version control", "data analysis", "data mining", "machine learning",
+            "artificial intelligence", "natural language processing", "computer vision",
+            "cloud computing", "distributed systems", "operating systems", "networking",
+            "cyber security", "information security", "web development", "mobile development",
+            "software engineering", "devops", "continuous integration", "continuous deployment"
+        ]
+        
+        if any(exception in name_lower for exception in technical_exceptions):
+            return False
         
         # Check against the list of invalid skills
         for invalid_skill in self.invalid_skills:
