@@ -18,6 +18,7 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import logging
 from extract_and_process import DocumentProcessor, SkillProcessor, ProficiencyCalculator
+from processors.skill_validator import SkillValidator
 
 # Configure logging
 logging.basicConfig(
@@ -147,12 +148,20 @@ def process_files(file_paths, output_dir):
     skill_processor = SkillProcessor()
     proficiency_calculator = ProficiencyCalculator(skill_processor.technical_skills)
     
+    # Initialize skill validator with custom database if available
+    custom_db_path = os.path.join(os.path.dirname(__file__), 'data', 'skills_database.json')
+    if not os.path.exists(custom_db_path):
+        custom_db_path = None
+    skill_validator = SkillValidator(custom_db_path)  # Initialize the skill validator with db path
+    
     # Initialize result containers
     all_skills = []
     cert_skills = []
     cert_texts = {}
     resume_skills = []
     resume_file = None
+    detected_industry = "general"
+    industry_scores = {}
     
     # Categorize files
     resume_files = [f for f in file_paths if document_processor.is_resume(f)]
@@ -192,9 +201,21 @@ def process_files(file_paths, output_dir):
             logger.warning(f"Failed to extract text from {file_path}")
             continue
         
-        # Extract skills
+        # Detect industry for targeted skill extraction
+        from extract_and_process import detect_industry
+        detected_industry, industry_scores = detect_industry(extracted_text)
+        logger.info(f"Detected industry: {detected_industry}")
+        
+        # Update processors for industry-specific extraction
+        if hasattr(skill_processor, 'update_for_industry'):
+            skill_processor.update_for_industry(detected_industry)
+        
+        if hasattr(proficiency_calculator, 'update_for_industry'):
+            proficiency_calculator.update_for_industry(detected_industry)
+        
+        # Extract skills with industry context
         file_skills = skill_processor.extract_skills(extracted_text)
-        logger.info(f"Extracted {len(file_skills)} skills from resume")
+        logger.info(f"Extracted {len(file_skills)} skills from resume (industry: {detected_industry})")
         
         # Mark backed skills
         backed_skills = skill_processor.mark_backed_skills(file_skills, cert_skills)
@@ -311,8 +332,12 @@ def process_files(file_paths, output_dir):
             "is_backed": skill.get("is_backed", False)
         })
     
-    # Sort skills by name
-    processed_skills.sort(key=lambda x: x["name"])
+    # Post-process extracted skills to validate and remove non-skills
+    validated_skills = skill_validator.validate_skills(processed_skills)
+    logger.info(f"Validated skills: {len(validated_skills)} out of {len(processed_skills)} original skills")
+    
+    # Sort validated skills by name
+    validated_skills.sort(key=lambda x: x["name"])
     
     # Get certification names
     certification_names = [os.path.basename(f) for f in cert_files]
@@ -320,8 +345,10 @@ def process_files(file_paths, output_dir):
     # Create result object
     result = {
         "file": resume_file or "unknown",
-        "skills": processed_skills,
-        "certifications": certification_names
+        "skills": validated_skills,  # Use validated skills instead of all processed skills
+        "certifications": certification_names,
+        "industry": detected_industry,
+        "industry_scores": {k: round(v, 2) for k, v in sorted(industry_scores.items(), key=lambda x: x[1], reverse=True)[:3] if v > 0.05}
     }
     
     # Save results to files

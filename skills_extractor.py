@@ -92,6 +92,8 @@ def extract_skills(input_path, output_path=None, tesseract_path=None):
         # Now process resume files
         all_skills = []
         resume_file = None
+        detected_industry = "general"
+        industry_scores = {}
         
         for file_path in resume_files:
             logger.info(f"Processing resume: {os.path.basename(file_path)}")
@@ -104,9 +106,21 @@ def extract_skills(input_path, output_path=None, tesseract_path=None):
                 logger.warning(f"Failed to extract text from {file_path}")
                 continue
             
-            # Extract skills
+            # Detect industry for targeted skill extraction
+            from extract_and_process import detect_industry
+            detected_industry, industry_scores = detect_industry(extracted_text)
+            logger.info(f"Detected industry: {detected_industry}")
+            
+            # Update processors for industry-specific extraction
+            if hasattr(skill_processor, 'update_for_industry'):
+                skill_processor.update_for_industry(detected_industry)
+            
+            if hasattr(proficiency_calculator, 'update_for_industry'):
+                proficiency_calculator.update_for_industry(detected_industry)
+            
+            # Extract skills using industry context
             resume_skills = skill_processor.extract_skills(extracted_text)
-            logger.info(f"Extracted {len(resume_skills)} skills from resume")
+            logger.info(f"Extracted {len(resume_skills)} skills from resume (industry: {detected_industry})")
             
             # Mark backed skills
             backed_skills = skill_processor.mark_backed_skills(resume_skills, cert_skills)
@@ -177,7 +191,9 @@ def extract_skills(input_path, output_path=None, tesseract_path=None):
             results = {
                 "file": resume_file,
                 "skills": all_skills,
-                "certifications": certification_names
+                "certifications": certification_names,
+                "industry": detected_industry,
+                "industry_scores": {k: round(v, 2) for k, v in sorted(industry_scores.items(), key=lambda x: x[1], reverse=True)[:3]}
             }
             
             try:

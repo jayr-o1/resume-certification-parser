@@ -20,6 +20,7 @@ import pytesseract
 import spacy
 import re
 from collections import defaultdict
+import openai
 
 # Configure logging
 logging.basicConfig(
@@ -56,13 +57,31 @@ class SkillProcessor:
         Args:
             skills_db_path (str, optional): Path to custom skills database JSON file
         """
+        # Initialize logger
+        self.logger = logging.getLogger(__name__)
+        
         self.skills_data = self._load_skills_data(skills_db_path)
         self.technical_skills = self.skills_data.get("technical_skills", [])
         self.soft_skills = self.skills_data.get("soft_skills", [])
         
+        # Load industry-specific skills
+        self.industry_skills = {}
+        for key in self.skills_data:
+            if key.endswith('_skills') and key not in ["technical_skills", "soft_skills"]:
+                industry_name = key.split('_')[0]
+                self.industry_skills[industry_name] = self.skills_data[key]
+                
+        # Store all skills in one list for convenience
+        self.all_skills = self.technical_skills + self.soft_skills
+        for industry_skill_list in self.industry_skills.values():
+            self.all_skills.extend(industry_skill_list)
+        
+        # Remove duplicates while preserving order
+        self.all_skills = list(dict.fromkeys(self.all_skills))
+        
         # Prepare skill variations for better matching
         self.skill_variations = self._prepare_skill_variations()
-        
+    
     def _load_skills_data(self, skills_db_path):
         """
         Load skills data from a JSON file
@@ -107,6 +126,40 @@ class SkillProcessor:
         except Exception as e:
             logger.error(f"Error loading skills database: {str(e)}")
             return default_db
+    
+    def update_for_industry(self, industry):
+        """
+        Update the processor to prioritize skills for a specific industry
+        
+        Args:
+            industry (str): The detected industry
+            
+        Returns:
+            None
+        """
+        # Reset skill priorities based on industry
+        self.industry_priority_skills = []
+        
+        # Add industry-specific skills as priority if available
+        if industry in self.industry_skills:
+            self.industry_priority_skills = self.industry_skills[industry]
+            logger.info(f"Added {len(self.industry_priority_skills)} priority skills for {industry} industry")
+        
+        # For technology industry, prioritize technical skills
+        if industry == "technology":
+            self.industry_priority_skills.extend(self.technical_skills)
+        
+        # For education industry, prioritize education skills
+        elif industry == "education":
+            # Education skills might already be in industry skills, but ensure they're included
+            education_keywords = ["teaching", "education", "curriculum", "instruction", "learning"]
+            for skill in self.all_skills:
+                if any(keyword in skill.lower() for keyword in education_keywords):
+                    if skill not in self.industry_priority_skills:
+                        self.industry_priority_skills.append(skill)
+        
+        # Remove duplicates
+        self.industry_priority_skills = list(dict.fromkeys(self.industry_priority_skills))
     
     def _prepare_skill_variations(self):
         """
@@ -465,169 +518,189 @@ class SkillProcessor:
         
         return doc[start:end].text
     
-    def _extract_with_patterns(self, text):
+    def _extract_with_patterns(self, resume_text, industry="general"):
         """
         Extract skills using regex patterns
         
         Args:
-            text (str): Text to extract skills from
+            resume_text (str): The resume text
+            industry (str): The detected industry
             
         Returns:
-            list: List of extracted skill dictionaries
+            list: List of extracted skills
         """
+        self.logger.info(f"Extracting skills using patterns for industry: {industry}")
         extracted_skills = []
         
-        # Common patterns in resumes and certifications - prioritize sections that clearly indicate skills
-        patterns = [
-            # Skills in dedicated sections - highest priority
-            (r'(?:technical skills|programming languages|database technologies|development tools|software proficiencies|key skills|core competencies)(?:[:\s]+)([^\n\.]+)', 'skills_section', 3),
+        # Dictionary of general skill extraction patterns
+        general_patterns = {
+            # Skills explicitly listed in skills/core competencies sections (highest priority)
+            "skills_section": [
+                r"(?:key\s+)?skills\s*(?::|include|:include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"technical\s+skills\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"core\s+competencies\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"areas\s+of\s+expertise\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"specialties\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"professional\s+skills\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})"
+            ],
             
-            # Database-specific sections - high priority for database roles
-            (r'(?:database|data|sql|query language|data modeling|data warehousing)(?:\s+)(?:technologies|skills|proficiencies|expertise|knowledge)(?:[:\s]+)([^\n\.]+)', 'database_section', 3),
+            # Technical skills/tools/languages sections (high priority)
+            "technical_section": [
+                r"technologies.*?(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"programming\s+languages.*?(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"software.*?(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"tools.*?(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"platforms.*?(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})"
+            ],
             
-            # Education and teaching sections for non-technical skills
-            (r'(?:teaching|education|instruction|instructional design|curriculum|pedagogical)(?:\s+)(?:skills|experience|expertise|competencies)(?:[:\s]+)([^\n\.]+)', 'education_section', 3),
+            # Strong/proficient in sections (medium priority)
+            "proficiency_section": [
+                r"(?:strong|proficient)\s+in\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"expertise\s+in\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"knowledge\s+of\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                r"experience\s+with\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})"
+            ],
             
-            # Skills in technology sections - high priority
-            (r'(?:technologies|tools|languages|frameworks|platforms|environments)(?:[:\s]+)([^\n\.]+)', 'tech_section', 2),
-            
-            # Skills with experience indicators - high priority
-            (r'(?:proficient in|experience with|knowledge of|familiar with|skilled in|expertise in|competent with)[\s:]+([^\.;]+)', 'experience_indicator', 2),
-            
-            # Skills in section headers - medium priority
-            (r'(?:^|\n)(?:programming|database|software|web|development|mobile|teaching|instruction)(?:[:\s]+)([^\.;\n]+)', 'section_header', 1),
-            
-            # Skills in parentheses - often used for clarification
-            (r'\(([^)]{3,30})\)', 'parenthetical', 1),
-            
-            # Skills listed in bullet points or list items - lower priority
-            (r'(?:^|\n)[\s\-•*>]+([^•\n:]+)(?:\n|$)', 'bullet_point', 0)
-        ]
+            # Bullet points that mention skills (lower priority)
+            "bullet_points": [
+                r"•\s*(?:utilized|used|applied|implemented|developed\s+with)\s+([\w\s,&/\-()+]+)",
+                r"•\s*(?:strong|proficient)\s+in\s+([\w\s,&/\-()+]+)",
+                r"•\s*(?:expertise|experience)\s+(?:in|with)\s+([\w\s,&/\-()+]+)"
+            ]
+        }
         
-        # Gather all matches first
-        all_matches = []
+        # Industry-specific patterns
+        industry_patterns = {
+            "healthcare": {
+                "clinical_skills": [
+                    r"clinical\s+skills\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"medical\s+(?:skills|expertise)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"patient\s+care\s*(?:skills|competencies)?\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})"
+                ]
+            },
+            "finance": {
+                "financial_skills": [
+                    r"financial\s+(?:skills|analysis)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"accounting\s+(?:skills|expertise)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"banking\s+(?:skills|expertise)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})"
+                ]
+            },
+            "education": {
+                "teaching_skills": [
+                    r"teaching\s+(?:skills|methods)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"classroom\s+(?:skills|management)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"instructional\s+(?:skills|methods)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})"
+                ]
+            },
+            "legal": {
+                "legal_skills": [
+                    r"legal\s+(?:skills|expertise)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"(?:litigation|contract)\s+(?:skills|expertise)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})"
+                ]
+            },
+            "marketing": {
+                "marketing_skills": [
+                    r"marketing\s+(?:skills|strategies)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"digital\s+marketing\s*(?:skills|tools)?\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"brand(?:ing)?\s+(?:skills|strategies)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})"
+                ]
+            },
+            "sales": {
+                "sales_skills": [
+                    r"sales\s+(?:skills|techniques)\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"account\s+management\s*(?:skills)?\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})",
+                    r"business\s+development\s*(?:skills)?\s*(?::|include)?\s*((?:[\w\s,&/\-()+]+(?:,|and|;|\n|\r|\|(?=\s*[\w\s]+))){2,})"
+                ]
+            }
+        }
         
-        for pattern_tuple in patterns:
-            pattern, source_type, priority = pattern_tuple
-            matches = re.finditer(pattern, text, re.IGNORECASE)
-            
-            for match in matches:
-                # Get the matched text and its surrounding context
-                match_text = match.group(1).strip()
-                start = max(0, match.start() - 50)
-                end = min(len(text), match.end() + 50)
-                context = text[start:end]
+        # Add related industries for cross-functional roles
+        related_industries = {
+            "technology": ["finance", "healthcare"],  # Tech often crosses into finance and healthcare
+            "healthcare": ["technology"],  # Healthcare increasingly uses technology
+            "finance": ["technology", "legal"],  # Finance often involves tech and legal
+            "education": ["technology"],  # Education increasingly uses technology
+            "legal": ["finance"],  # Legal often involves finance
+            "sales": ["marketing"],  # Sales and marketing are closely related
+            "marketing": ["sales", "technology"]  # Marketing increasingly involves tech and sales
+        }
+        
+        # Select patterns to use based on industry
+        patterns_to_use = general_patterns.copy()
+        
+        # Add industry-specific patterns if available
+        if industry in industry_patterns:
+            for category, pattern_list in industry_patterns[industry].items():
+                patterns_to_use[category] = pattern_list
+                self.logger.info(f"Added {len(pattern_list)} {industry}-specific patterns for {category}")
                 
-                # Store the match information
-                all_matches.append({
-                    "text": match_text,
-                    "context": context,
-                    "source_type": source_type,
-                    "priority": priority
-                })
+        # Add related industry patterns if applicable
+        if industry in related_industries:
+            for related_industry in related_industries[industry]:
+                if related_industry in industry_patterns:
+                    for category, pattern_list in industry_patterns[related_industry].items():
+                        if category not in patterns_to_use:
+                            patterns_to_use[category] = []
+                        patterns_to_use[category].extend(pattern_list)
+                        self.logger.info(f"Added {len(pattern_list)} {related_industry}-specific patterns (related to {industry})")
         
-        # Now process the matches to extract skills
-        for match_info in all_matches:
-            match_text = match_info["text"]
-            context = match_info["context"]
-            source_type = match_info["source_type"]
-            priority = match_info["priority"]
-            
-            # Different splitting strategies based on source type
-            if source_type in ["skills_section", "tech_section", "database_section", "education_section", "experience_indicator"]:
-                # Use more aggressive splitting for explicit skill sections
-                skill_candidates = re.split(r'[,;/&]|\band\b', match_text)
-            else:
-                # More conservative splitting for other contexts
-                skill_candidates = re.split(r'[,;/]', match_text)
-            
-            for skill_candidate in skill_candidates:
-                skill_candidate = skill_candidate.strip().lower()
-                
-                # Skip empty or very short candidates
-                if len(skill_candidate) < 2:
-                    continue
+        # Define confidence boosts by pattern category
+        confidence_boosts = {
+            "skills_section": 0.15,
+            "technical_section": 0.10,
+            "proficiency_section": 0.08,
+            "bullet_points": 0.05,
+            "clinical_skills": 0.15,  # Healthcare
+            "financial_skills": 0.15,  # Finance
+            "teaching_skills": 0.15,  # Education
+            "legal_skills": 0.15,  # Legal
+            "marketing_skills": 0.15,  # Marketing
+            "sales_skills": 0.15  # Sales
+        }
+        
+        # Process each pattern category
+        for category, patterns in patterns_to_use.items():
+            for pattern in patterns:
+                matches = re.finditer(pattern, resume_text, re.IGNORECASE | re.DOTALL)
+                for match in matches:
+                    # Extract the skills list from the match
+                    skills_list = match.group(1).strip() if match.groups() else match.group(0).strip()
                     
-                # Skip candidates that are just numbers or single letters
-                if skill_candidate.isdigit() or (len(skill_candidate) == 1 and skill_candidate.isalpha()):
-                    continue
-                
-                # Skip common words that aren't skills
-                if skill_candidate in ["and", "or", "with", "using", "including", "such", "as", "like", "etc", "other", "years"]:
-                    continue
-                
-                # Special handling for multi-word skills - look for them before splitting
-                # Check for exact multi-word matches first
-                found_multiword = False
-                for var, skill in self.skill_variations.items():
-                    if len(var.split()) > 1 and var in skill_candidate:
-                        # This is a multi-word skill match
-                        confidence_boost = 0
-                        if priority >= 2:  # High priority context
-                            confidence_boost = 0.2
-                        elif priority == 1:  # Medium priority context
-                            confidence_boost = 0.1
+                    # Split the skills list using multiple delimiters
+                    skills = re.split(r',|\bAND\b|;|\n|\r|\|(?=\s*[\w\s]+)', skills_list, flags=re.IGNORECASE)
+                    
+                    for skill in skills:
+                        skill = skill.strip()
                         
-                        skill_dict = {
-                            "name": skill,
-                            "context": context,
-                            "is_technical": skill in self.technical_skills,
-                            "is_backed": False,  # Default to not backed
-                            "source": f"pattern_match_{source_type}_multiword",
-                            "confidence_boost": confidence_boost,
-                            "priority": priority
-                        }
-                        extracted_skills.append(skill_dict)
-                        found_multiword = True
-                
-                # Skip overly long candidates (likely not a skill)
-                if len(skill_candidate.split()) > 4:
-                    continue
-                
-                # Special handling for programming languages and other special skills
-                special_skills = ["c++", "c#", "r", "go", "swift"]
-                if skill_candidate in special_skills:
-                    # Always require proper capitalization for these special skills
-                    proper_case = {"c++": "C++", "c#": "C#", "r": "R", "go": "Go", "swift": "Swift"}
-                    proper_form = proper_case[skill_candidate]
-                    
-                    # Only allow these skills in high-priority contexts or with proper capitalization
-                    if not ((priority >= 2) or 
-                            re.search(r'\b' + re.escape(proper_form) + r'\b', context) or
-                            re.search(r'programming language[s]?.*\b' + re.escape(skill_candidate) + r'\b', context, re.IGNORECASE)):
-                        continue
-                
-                if skill_candidate in self.skill_variations and not found_multiword:
-                    canonical_name = self.skill_variations[skill_candidate]
-                    
-                    # Skip if it's just a common word that might be mistaken for a skill
-                    if canonical_name.lower() in ["a", "an", "the", "in", "on", "at", "by", "for", "with"]:
-                        continue
-                    
-                    # For single letter skills like 'C' or 'R', require explicit programming context
-                    if len(canonical_name) == 1:
-                        if not (re.search(r'\bprogramming\s+language[s]?\b.*\b' + re.escape(canonical_name) + r'\b', context, re.IGNORECASE) or
-                                re.search(r'\b' + re.escape(canonical_name) + r' programming\b', context, re.IGNORECASE)):
+                        # Skip if too short or too long
+                        if len(skill) < 2 or len(skill) > 50:
                             continue
-                    
-                    # Add weight to the confidence based on source type
-                    confidence_boost = 0
-                    if priority >= 2:  # High priority context
-                        confidence_boost = 0.2
-                    elif priority == 1:  # Medium priority context
-                        confidence_boost = 0.1
-                    
-                    skill_dict = {
-                        "name": canonical_name,
-                        "context": context,
-                        "is_technical": canonical_name in self.technical_skills,
-                        "is_backed": False,  # Default to not backed
-                        "source": f"pattern_match_{source_type}",
-                        "confidence_boost": confidence_boost,
-                        "priority": priority
-                    }
-                    extracted_skills.append(skill_dict)
+                            
+                        # Skip if contains only numbers or special characters
+                        if not re.search(r'[a-zA-Z]', skill):
+                            continue
+                        
+                        # Skip common false positives
+                        if skill.lower() in ["and", "or", "in", "with", "using", "to", "of"]:
+                            continue
+                        
+                        # Normalize skill name
+                        normalized_skill = skill.strip().title()
+                        
+                        # Calculate confidence boost based on pattern category
+                        boost = confidence_boosts.get(category, 0)
+                        
+                        # Add to extracted skills with source information
+                        extracted_skills.append({
+                            'name': normalized_skill,
+                            'source': 'pattern',
+                            'confidence_boost': boost,
+                            'pattern_category': category,
+                            'context': skill,  # Adding the context field with the skill itself as initial context
+                            'is_technical': normalized_skill in self.technical_skills  # Add is_technical field
+                        })
         
+        self.logger.info(f"Extracted {len(extracted_skills)} skills using patterns for {industry} industry")
         return extracted_skills
     
     def _deduplicate_skills(self, skills):
@@ -744,10 +817,19 @@ class ProficiencyCalculator:
     Calculate proficiency levels for skills based on context
     """
     
-    def __init__(self, technical_skills=None):
-        """Initialize the proficiency calculator with indicators"""
+    def __init__(self, technical_skills=None, industry="general"):
+        """
+        Initialize the proficiency calculator with indicators
+        
+        Args:
+            technical_skills (list): List of technical skills
+            industry (str): The detected industry
+        """
         # Store technical skills reference
         self.technical_skills = technical_skills or []
+        
+        # Store the industry
+        self.industry = industry
         
         # Proficiency levels and indicators similar to the existing proficiency calculator
         self.proficiency_indicators = {
@@ -783,6 +865,46 @@ class ProficiencyCalculator:
                 "cutting-edge", "industry leader", "speaker", "published", "researcher", "invented",
                 "patent", "revolutionized", "transformed", "principal", "consultant", "advisor"
             ]
+        }
+        
+        # Industry-specific proficiency indicators
+        self.industry_proficiency_indicators = {
+            "healthcare": {
+                "Beginner": ["observed", "shadowed", "assisted with", "under supervision", "training in"],
+                "Intermediate": ["performed", "conducted", "administered", "provided care", "treated", "diagnosed"],
+                "Advanced": ["specialized in", "led treatment", "clinical expertise", "refined protocols", "chief"],
+                "Expert": ["pioneered treatment", "published research", "board certified", "fellowship", "chief medical"]
+            },
+            "education": {
+                "Beginner": ["student teaching", "teaching assistant", "substitute", "tutored", "assisted teacher"],
+                "Intermediate": ["taught", "instructed", "facilitated", "developed curriculum", "assessed", "graded"],
+                "Advanced": ["master teacher", "department chair", "curriculum specialist", "instructional coach"],
+                "Expert": ["principal", "superintendent", "published educator", "professor", "education consultant"]
+            },
+            "finance": {
+                "Beginner": ["bookkeeping", "data entry", "reconciled", "tracked expenses", "junior"],
+                "Intermediate": ["analyzed", "prepared reports", "forecasted", "budgeted", "audited"],
+                "Advanced": ["managed portfolio", "led audits", "oversaw", "senior analyst", "authorized"],
+                "Expert": ["chief financial", "partner", "director of finance", "certified", "strategized"]
+            },
+            "legal": {
+                "Beginner": ["researched", "reviewed documents", "assisted attorneys", "drafted", "paralegal"],
+                "Intermediate": ["represented clients", "prepared briefs", "conducted discovery", "negotiated"],
+                "Advanced": ["led litigation", "specialized practice", "argued cases", "senior counsel"],
+                "Expert": ["partner", "judge", "general counsel", "chief legal officer", "law professor"]
+            },
+            "marketing": {
+                "Beginner": ["assisted with campaigns", "coordinated", "monitored", "updated content", "tracked"],
+                "Intermediate": ["created campaigns", "managed social media", "analyzed metrics", "developed content"],
+                "Advanced": ["led marketing", "brand strategy", "marketing director", "optimized campaigns"],
+                "Expert": ["chief marketing", "transformed brand", "award-winning", "innovative strategy", "thought leader"]
+            },
+            "sales": {
+                "Beginner": ["prospected", "qualified leads", "customer service", "support", "assisted"],
+                "Intermediate": ["achieved quota", "closed deals", "managed accounts", "retained clients", "exceeded goals"],
+                "Advanced": ["top performer", "president's club", "managed territory", "key accounts", "sales leader"],
+                "Expert": ["VP of sales", "chief revenue", "built sales organization", "transformed sales", "award-winning"]
+            }
         }
         
         # Duration indicators based on research on skill acquisition times
@@ -844,20 +966,38 @@ class ProficiencyCalculator:
             
             "Intermediate": [
                 "implemented", "developed", "built", "created", "designed", "managed", 
-                "performed", "conducted", "handled", "organized", "maintained", "deployed"
+                "maintained", "handled", "processed", "operated", "organized", "executed",
+                "conducted", "administered", "coordinated", "produced", "performed"
             ],
             
             "Advanced": [
-                "led", "directed", "optimized", "enhanced", "improved", "analyzed", 
-                "architected", "mentored", "trained", "designed", "oversaw", "orchestrated"
+                "led", "directed", "guided", "oversaw", "supervised", "trained", "mentored",
+                "architected", "designed", "optimized", "improved", "enhanced", "streamlined",
+                "innovated", "transformed", "revamped", "restructured", "analyzed", "solved"
             ],
             
             "Expert": [
-                "pioneered", "innovated", "revolutionized", "transformed", "established", 
-                "authored", "invented", "discovered", "mastered", "spoke", "published"
+                "spearheaded", "pioneered", "established", "founded", "authored", "published",
+                "revolutionized", "redefined", "conceptualized", "formulated", "invented",
+                "patented", "keynoted", "consulted", "advised", "strategized", "envisioned"
             ]
         }
-    
+        
+    def update_for_industry(self, industry):
+        """
+        Update proficiency indicators for a specific industry
+        
+        Args:
+            industry (str): The detected industry
+        """
+        self.industry = industry
+        
+        # Add industry-specific indicators to the general ones if available
+        if industry in self.industry_proficiency_indicators:
+            for level, indicators in self.industry_proficiency_indicators[industry].items():
+                self.proficiency_indicators[level].extend(indicators)
+                logger.info(f"Added {len(indicators)} {industry}-specific {level} indicators")
+        
     def calculate_proficiency(self, skill_name, context, certification_text=None, is_backed=False, confidence_boost=0):
         """
         Calculate proficiency level for a skill based on its context
@@ -927,6 +1067,24 @@ class ProficiencyCalculator:
             scores["Advanced"] += 1
             logger.info(f"Boosting proficiency scores for backed skill: {skill_name}")
             
+        # Add industry-specific context boost
+        if self.industry != "general":
+            # For technical skills in tech industry, boost intermediate
+            if self.industry == "technology" and is_tech_skill:
+                scores["Intermediate"] += 0.5
+                
+            # For healthcare skills in healthcare industry, boost appropriately
+            elif self.industry == "healthcare" and skill_name in ["Patient Care", "Clinical Assessment", "Medical Terminology"]:
+                scores["Intermediate"] += 0.5
+                
+            # For education skills in education industry
+            elif self.industry == "education" and skill_name in ["Curriculum Development", "Classroom Management", "Student Assessment"]:
+                scores["Intermediate"] += 0.5
+                
+            # For finance skills in finance industry
+            elif self.industry == "finance" and skill_name in ["Financial Analysis", "Accounting", "Financial Reporting"]:
+                scores["Intermediate"] += 0.5
+        
         # For technical skills, add baseline boost based on context
         if is_tech_skill:
             # Check if skill is mentioned in a key skills section or with strong indicators
@@ -949,6 +1107,29 @@ class ProficiencyCalculator:
             r"system.*" + re.escape(skill_name),
             r"production.*" + re.escape(skill_name)
         ]
+        
+        # Add industry-specific experience patterns
+        if self.industry == "healthcare":
+            experience_patterns.extend([
+                r"(?:treated|diagnosed|cared for).*" + re.escape(skill_name),
+                r"patient.*" + re.escape(skill_name),
+                r"clinical.*" + re.escape(skill_name),
+                r"medical.*" + re.escape(skill_name)
+            ])
+        elif self.industry == "education":
+            experience_patterns.extend([
+                r"(?:taught|instructed|educated).*" + re.escape(skill_name),
+                r"classroom.*" + re.escape(skill_name),
+                r"student.*" + re.escape(skill_name),
+                r"curriculum.*" + re.escape(skill_name)
+            ])
+        elif self.industry == "finance":
+            experience_patterns.extend([
+                r"(?:analyzed|prepared|audited).*" + re.escape(skill_name),
+                r"financial.*" + re.escape(skill_name),
+                r"accounting.*" + re.escape(skill_name),
+                r"report.*" + re.escape(skill_name)
+            ])
         
         if any(re.search(pattern, context, re.IGNORECASE) for pattern in experience_patterns):
             # Evidence of actual use boosts Intermediate and Advanced scores
@@ -1424,6 +1605,136 @@ def save_results(results, output_path):
             logger.info(f"Full results saved to {output_path} (fallback)")
         except Exception as e2:
             logger.error(f"Error saving fallback results: {str(e2)}")
+
+
+def detect_industry(text):
+    """
+    Detect the likely industry based on resume content
+    
+    Args:
+        text (str): The resume text
+        
+    Returns:
+        tuple: (primary_industry, industry_scores) - The likely industry and scores for all industries
+    """
+    # Industry indicators - key terms that signal a particular industry
+    industry_indicators = {
+        "technology": [
+            "software", "programming", "developer", "engineering", "code", "web", "app", 
+            "database", "frontend", "backend", "devops", "IT", "computer science",
+            "algorithm", "technical", "system", "cloud", "API", "github", "stack",
+            "agile", "scrum", "sprint", "javascript", "python", "java", "C++"
+        ],
+        "healthcare": [
+            "patient", "clinical", "medical", "healthcare", "diagnosis", "treatment", 
+            "hospital", "doctor", "nurse", "physician", "therapy", "therapeutic", 
+            "pharmaceutical", "medicine", "care", "health", "clinic", "pharmacy",
+            "EMR", "EHR", "patient care", "bedside", "HIPAA", "medical record"
+        ],
+        "finance": [
+            "financial", "finance", "accounting", "audit", "tax", "investment", "banking", 
+            "portfolio", "asset", "stock", "equity", "market", "trading", "revenue", 
+            "fiscal", "budget", "forecast", "profit", "loss", "ROI", "capital",
+            "expense", "cost analysis", "reconciliation", "ledger", "GAAP"
+        ],
+        "education": [
+            "teaching", "education", "school", "student", "curriculum", "classroom", 
+            "instruction", "learning", "academic", "professor", "teacher", "faculty", 
+            "course", "grade", "assessment", "lesson", "pedagogy", "educational",
+            "training", "mentoring", "tutoring", "lecture", "seminar", "syllabus"
+        ],
+        "legal": [
+            "legal", "law", "attorney", "counsel", "litigation", "paralegal", 
+            "contract", "compliance", "regulation", "court", "case", "plaintiff", 
+            "defendant", "judicial", "statute", "rights", "legal research",
+            "deposition", "arbitration", "mediation", "negotiation", "brief"
+        ],
+        "marketing": [
+            "marketing", "brand", "advertising", "campaign", "market research", "social media", 
+            "digital marketing", "SEO", "content", "promotion", "customer", "consumer", 
+            "product", "analytics", "audience", "engagement", "strategy", "creative",
+            "conversion", "lead generation", "funnel", "CRM", "media buying"
+        ],
+        "consulting": [
+            "consulting", "consultant", "client", "solution", "business strategy", 
+            "advisory", "management consulting", "project", "engagement", "stakeholder", 
+            "recommendation", "analysis", "implement", "transformation", "optimize",
+            "problem-solving", "deliverable", "presentation", "proposal", "business case"
+        ],
+        "hr": [
+            "human resources", "HR", "recruiting", "recruitment", "talent", "hiring", 
+            "onboarding", "employee", "personnel", "compensation", "benefits", 
+            "performance review", "training", "development", "workforce", "culture",
+            "diversity", "inclusion", "labor relations", "employment", "HR information system"
+        ],
+        "data_science": [
+            "data science", "machine learning", "AI", "artificial intelligence", "analytics", 
+            "big data", "data mining", "statistical", "algorithm", "model", "prediction", 
+            "clustering", "classification", "regression", "NLP", "neural network",
+            "data visualization", "dashboard", "business intelligence", "insight"
+        ],
+        "design": [
+            "design", "UX", "UI", "user experience", "graphic", "visual", "creative", 
+            "layout", "wireframe", "prototype", "typography", "color", "art", 
+            "illustration", "brand", "mockup", "interface", "interaction design",
+            "user research", "usability", "accessibility", "responsive"
+        ],
+        "sales": [
+            "sales", "selling", "revenue", "quota", "pipeline", "prospect", "lead", 
+            "customer", "client", "account", "closing", "negotiation", "CRM", 
+            "territory", "business development", "deal", "opportunity", "sales funnel",
+            "commission", "upsell", "cross-sell", "target", "forecast"
+        ]
+    }
+    
+    # Count indicators for each industry
+    counts = {industry: 0 for industry in industry_indicators}
+    
+    # Normalize the text for better matching
+    normalized_text = text.lower()
+    
+    for industry, indicators in industry_indicators.items():
+        for indicator in indicators:
+            # Count explicit mentions
+            explicit_count = len(re.findall(r'\b' + re.escape(indicator.lower()) + r'\b', normalized_text))
+            counts[industry] += explicit_count
+    
+    # Add weighting for section headers
+    industry_section_patterns = {
+        "technology": [r'technical skills', r'programming', r'software development', r'engineering'],
+        "healthcare": [r'clinical experience', r'medical', r'patient care', r'healthcare'],
+        "finance": [r'financial', r'accounting', r'investment', r'banking'],
+        "education": [r'teaching experience', r'education', r'academic', r'instructional'],
+        "legal": [r'legal experience', r'law', r'legal research', r'litigation'],
+        "marketing": [r'marketing experience', r'advertising', r'brand', r'campaign'],
+        "consulting": [r'consulting experience', r'client engagement', r'advisory'],
+        "hr": [r'human resources', r'recruiting', r'talent', r'hr'],
+        "data_science": [r'data science', r'analytics', r'machine learning', r'statistical'],
+        "design": [r'design experience', r'creative', r'ux', r'ui'],
+        "sales": [r'sales experience', r'business development', r'account management']
+    }
+    
+    for industry, patterns in industry_section_patterns.items():
+        for pattern in patterns:
+            section_matches = re.findall(r'\b' + re.escape(pattern) + r'[:\s]', normalized_text, re.IGNORECASE)
+            # Section headers get extra weight
+            counts[industry] += len(section_matches) * 5
+    
+    # Get primary industry (highest score)
+    sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    primary_industry = sorted_counts[0][0] if sorted_counts[0][1] > 0 else "general"
+    
+    # Calculate confidence scores - normalize to sum to 1.0
+    total = sum(counts.values())
+    if total > 0:
+        scores = {industry: count/total for industry, count in counts.items()}
+    else:
+        scores = {industry: 0 for industry in counts}
+        scores["general"] = 1.0  # Default to general if no industry detected
+    
+    logger.info(f"Detected primary industry: {primary_industry} with scores: {sorted_counts[:3]}")
+    
+    return primary_industry, scores
 
 
 def main():

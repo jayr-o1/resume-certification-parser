@@ -1,0 +1,99 @@
+{
+  "file": "Jayce Losero Resume.pdf",
+  "skills": [
+    {
+      "name": "Collaborated With Peers For Departmental Planning",
+      "proficiency": "Beginner",
+      "confidence": 0.5,
+      "is_technical": false,
+      "is_backed": false
+    },
+    {
+      "name": "Curriculum Enhancements",
+      "proficiency": "Beginner",
+      "confidence": 0.5,
+      "is_technical": false,
+      "is_backed": false
+    },
+    {
+      "name": "Git",
+      "proficiency": "Beginner",
+      "confidence": 0.5,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Java",
+      "proficiency": "Beginner",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Key Skills",
+      "proficiency": "Beginner",
+      "confidence": 0.5,
+      "is_technical": false,
+      "is_backed": false
+    },
+    {
+      "name": "MySQL",
+      "proficiency": "Intermediate",
+      "confidence": 0.65,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Oracle",
+      "proficiency": "Beginner",
+      "confidence": 0.5,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "PHP",
+      "proficiency": "Beginner",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "PostgreSQL",
+      "proficiency": "Intermediate",
+      "confidence": 0.65,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Python",
+      "proficiency": "Beginner",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "SQL",
+      "proficiency": "Beginner",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Technologies Into Course Delivery",
+      "proficiency": "Beginner",
+      "confidence": 0.6,
+      "is_technical": false,
+      "is_backed": false
+    }
+  ],
+  "certifications": [
+    "Jayce Losero My SQL Certificate.png",
+    "Jayce Losero Python Certificate.png"
+  ],
+  "industry": "education",
+  "industry_scores": {
+    "education": 0.57,
+    "technology": 0.34,
+    "design": 0.06
+  }
+}

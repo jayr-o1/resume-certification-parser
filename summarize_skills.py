@@ -55,6 +55,17 @@ def generate_summary(skills_data, output_file=None):
     # Resume info
     summary.append(f"## Resume: {skills_data.get('file', 'Unknown')}\n")
     
+    # Industry info
+    if "industry" in skills_data and skills_data["industry"] != "general":
+        summary.append(f"## Detected Industry: {skills_data['industry'].title()}\n")
+        
+        # Add top industry scores if available
+        if "industry_scores" in skills_data and skills_data["industry_scores"]:
+            summary.append("### Industry Confidence Scores\n")
+            for industry, score in skills_data["industry_scores"].items():
+                summary.append(f"- {industry.title()}: {score:.2f}\n")
+            summary.append("\n")
+    
     # Certification info
     cert_count = len(skills_data.get("certifications", []))
     if cert_count > 0:
@@ -90,6 +101,38 @@ def generate_summary(skills_data, output_file=None):
                 for skill in soft_skills:
                     backed_marker = "X" if skill.get("is_backed", False) else " "
                     summary.append(f"- [{backed_marker}] {skill['name']} (Confidence: {skill['confidence']:.2f})\n")
+    
+    # Add industry-specific section if industry is detected
+    if "industry" in skills_data and skills_data["industry"] != "general":
+        industry = skills_data["industry"]
+        industry_specific_skills = []
+        
+        # Define industry-specific skill keywords
+        industry_skill_keywords = {
+            "technology": ["programming", "development", "software", "database", "cloud", "DevOps"],
+            "healthcare": ["patient", "medical", "clinical", "health", "diagnosis", "treatment"],
+            "finance": ["financial", "accounting", "banking", "investment", "budget", "analysis"],
+            "education": ["teaching", "curriculum", "instruction", "assessment", "learning"],
+            "legal": ["legal", "law", "contracts", "compliance", "regulation"],
+            "marketing": ["marketing", "brand", "digital", "content", "campaign"],
+            "sales": ["sales", "account", "business development", "client", "revenue"]
+        }
+        
+        # Find industry-specific skills
+        if industry in industry_skill_keywords:
+            keywords = industry_skill_keywords[industry]
+            for skill in skills_data.get("skills", []):
+                skill_name = skill["name"].lower()
+                if any(keyword.lower() in skill_name for keyword in keywords):
+                    industry_specific_skills.append(skill)
+        
+        # Add industry-specific skills section if any found
+        if industry_specific_skills:
+            summary.append(f"\n## {industry.title()} Industry Skills\n")
+            for skill in sorted(industry_specific_skills, key=lambda x: x["name"]):
+                proficiency = skill.get("proficiency", "Beginner")
+                backed_marker = "X" if skill.get("is_backed", False) else " "
+                summary.append(f"- [{backed_marker}] {skill['name']} ({proficiency}, Confidence: {skill['confidence']:.2f})\n")
     
     # Certifications legend
     summary.append("\n## Legend\n")

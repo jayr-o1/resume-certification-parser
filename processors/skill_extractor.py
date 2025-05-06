@@ -257,15 +257,23 @@ class SkillExtractor:
             if not clean_line:
                 continue
                 
+            # Skip section headers that might be mistaken for skills
+            common_headers = ["skills", "qualifications", "competencies", "expertise", "experience", "education", "certification"]
+            if len(clean_line.split()) <= 3 and any(header in clean_line.lower() for header in common_headers):
+                continue
+                
             # Check if the line itself is a skill
             skill_match = self._match_skill(clean_line)
             if skill_match:
-                extracted_skills.append({
-                    "name": skill_match,
-                    "confidence_score": 0.85,  # High confidence for direct matches
-                    "source": source,
-                    "context": clean_line
-                })
+                for skill in skill_match:
+                    # Extra verification: ensure this is a known skill or short phrase
+                    if skill in self.technical_skills or skill in self.soft_skills or len(skill.split()) <= 2:
+                        extracted_skills.append({
+                            "name": skill,
+                            "confidence_score": 0.85,  # High confidence for direct matches
+                            "source": source,
+                            "context": clean_line
+                        })
                 continue
                 
             # Check for skills in the line
@@ -278,28 +286,63 @@ class SkillExtractor:
                         for part in parts:
                             if not part:
                                 continue
+                            
+                            # Skip if part is too long (likely a sentence, not a skill)
+                            if len(part.split()) > 5:  # Reduced from 7 to 5 words
+                                continue
+                                
+                            # Skip if part contains sentence structures
+                            sentence_indicators = ['. ', '! ', '? ', ': ', '; ', ' and ', ' or ', ' but ', ' because ', ' when ', ' while ']
+                            if any(indicator in part.lower() for indicator in sentence_indicators):
+                                continue
+                            
+                            # Skip common phrases that aren't skills
+                            non_skill_phrases = ["key", "main", "primary", "essential", "required", "preferred", "demonstrated", "proven"]
+                            if len(part.split()) == 1 and part.lower() in non_skill_phrases:
+                                continue
+                                
                             skill_match = self._match_skill(part)
                             if skill_match:
-                                extracted_skills.append({
-                                    "name": skill_match,
-                                    "confidence_score": 0.8,
-                                    "source": source,
-                                    "context": clean_line
-                                })
+                                for skill in skill_match:
+                                    # Extra verification: ensure this is a known skill or short phrase
+                                    if skill in self.technical_skills or skill in self.soft_skills or len(skill.split()) <= 2:
+                                        extracted_skills.append({
+                                            "name": skill,
+                                            "confidence_score": 0.8,
+                                            "source": source,
+                                            "context": clean_line
+                                        })
             else:
                 # Apply NLP to extract potential skill entities
                 doc = nlp(clean_line)
                 
                 # Look for noun phrases that might be skills
                 for chunk in doc.noun_chunks:
+                    # Skip if chunk is too long (likely a sentence, not a skill)
+                    if len(chunk.text.split()) > 5:  # Reduced from 7 to 5 words
+                        continue
+                        
+                    # Skip if chunk contains sentence structures
+                    sentence_indicators = ['. ', '! ', '? ', ': ', '; ', ' and ', ' or ', ' but ', ' because ', ' when ', ' while ']
+                    if any(indicator in chunk.text.lower() for indicator in sentence_indicators):
+                        continue
+                        
+                    # Skip common phrases that aren't skills
+                    non_skill_phrases = ["key", "main", "primary", "essential", "required", "preferred", "demonstrated", "proven"]
+                    if len(chunk.text.split()) == 1 and chunk.text.lower() in non_skill_phrases:
+                        continue
+                        
                     skill_match = self._match_skill(chunk.text)
                     if skill_match:
-                        extracted_skills.append({
-                            "name": skill_match,
-                            "confidence_score": 0.7,
-                            "source": source,
-                            "context": clean_line
-                        })
+                        for skill in skill_match:
+                            # Extra verification: ensure this is a known skill or short phrase
+                            if skill in self.technical_skills or skill in self.soft_skills or len(skill.split()) <= 2:
+                                extracted_skills.append({
+                                    "name": skill,
+                                    "confidence_score": 0.7,
+                                    "source": source,
+                                    "context": clean_line
+                                })
                 
                 # Check for patterns that often indicate skills
                 for pattern in self.skill_patterns:
@@ -310,14 +353,32 @@ class SkillExtractor:
                         match = match.strip()
                         if not match:
                             continue
+                            
+                        # Skip if match is too long (likely a sentence, not a skill)
+                        if len(match.split()) > 5:  # Reduced from 7 to 5 words
+                            continue
+                            
+                        # Skip if match contains sentence structures
+                        sentence_indicators = ['. ', '! ', '? ', ': ', '; ', ' and ', ' or ', ' but ', ' because ', ' when ', ' while ']
+                        if any(indicator in match.lower() for indicator in sentence_indicators):
+                            continue
+                            
+                        # Skip common phrases that aren't skills
+                        non_skill_phrases = ["key", "main", "primary", "essential", "required", "preferred", "demonstrated", "proven"]
+                        if len(match.split()) == 1 and match.lower() in non_skill_phrases:
+                            continue
+                            
                         skill_match = self._match_skill(match)
                         if skill_match:
-                            extracted_skills.append({
-                                "name": skill_match,
-                                "confidence_score": 0.75,
-                                "source": source,
-                                "context": clean_line
-                            })
+                            for skill in skill_match:
+                                # Extra verification: ensure this is a known skill or short phrase
+                                if skill in self.technical_skills or skill in self.soft_skills or len(skill.split()) <= 2:
+                                    extracted_skills.append({
+                                        "name": skill,
+                                        "confidence_score": 0.75,
+                                        "source": source,
+                                        "context": clean_line
+                                    })
         
         return extracted_skills
         
@@ -599,6 +660,39 @@ class SkillExtractor:
         # Clean the text
         clean_text = text.lower().strip()
         
+        # Skip if text is too long (likely a sentence, not a skill)
+        if len(clean_text.split()) > 5:  # Reduced from 7 to 5 for stricter filtering
+            return matched_skills
+            
+        # Skip if text contains sentence structures
+        sentence_indicators = ['. ', '! ', '? ', ': ', '; ', ' and ', ' or ', ' but ', ' because ', ' when ', ' while ']
+        if any(indicator in clean_text for indicator in sentence_indicators):
+            return matched_skills
+            
+        # Skip common phrases that might be detected as skills but aren't
+        non_skill_phrases = [
+            "key skills", "core skills", "technical skills", "professional skills",
+            "soft skills", "hard skills", "primary skills", "skills include", 
+            "technologies into", "collaborated with", "curriculum enhancements",
+            "enhanced", "improved", "developed", "created", "implemented", "managed",
+            "led", "directed", "supervised", "assisted", "helped", "supported"
+        ]
+        
+        if any(phrase in clean_text for phrase in non_skill_phrases):
+            return matched_skills
+            
+        # Skip if text starts with a verb (likely an action, not a skill)
+        common_action_verbs = [
+            "develop", "create", "implement", "manage", "lead", "direct", 
+            "supervise", "assist", "help", "support", "collaborate", "coordinate",
+            "enhance", "improve", "increase", "decrease", "deliver", "provide",
+            "utilize", "use", "employ", "demonstrate", "establish", "maintain"
+        ]
+        
+        first_word = clean_text.split()[0]
+        if first_word in common_action_verbs or (len(first_word) > 2 and first_word.endswith('ed')):
+            return matched_skills
+        
         # Check for direct matches in skill variations
         if clean_text in self.skill_variations:
             skill_name = self.skill_variations[clean_text]
@@ -658,4 +752,55 @@ class SkillExtractor:
             if skill_name not in skill_map or confidence > skill_map[skill_name]["confidence_score"]:
                 skill_map[skill_name] = skill
                 
-        return list(skill_map.values()) 
+        return list(skill_map.values())
+
+    def _extract_with_patterns(self, resume_text, source):
+        """
+        Extract skills using regex patterns
+        
+        Args:
+            resume_text (str): The resume text
+            source (str): Source section name
+            
+        Returns:
+            list: Extracted skills with metadata
+        """
+        extracted_skills = []
+        
+        # Pattern for skills in lists (with bullets, etc.)
+        for pattern in self.skill_patterns:
+            matches = pattern.findall(resume_text)
+            for match in matches:
+                if isinstance(match, tuple):
+                    match = match[0]
+                match = match.strip()
+                if not match:
+                    continue
+                
+                # Skip if match is too long (likely a sentence, not a skill)
+                if len(match.split()) > 5:  # Reduced from 7 to 5 for stricter filtering
+                    continue
+                    
+                # Skip if match contains sentence structures
+                sentence_indicators = ['. ', '! ', '? ', ': ', '; ', ' and ', ' or ', ' but ', ' because ', ' when ', ' while ']
+                if any(indicator in match.lower() for indicator in sentence_indicators):
+                    continue
+                    
+                # Skip common phrases that aren't skills
+                non_skill_phrases = ["key", "main", "primary", "essential", "required", "preferred", "demonstrated", "proven"]
+                if len(match.split()) == 1 and match.lower() in non_skill_phrases:
+                    continue
+                
+                skill_match = self._match_skill(match)
+                if skill_match:
+                    for skill in skill_match:
+                        # Extra verification: ensure this is a known skill or short phrase
+                        if skill in self.technical_skills or skill in self.soft_skills or len(skill.split()) <= 2:
+                            extracted_skills.append({
+                                "name": skill,
+                                "confidence_score": 0.75,
+                                "source": source,
+                                "context": match
+                            })
+        
+        return extracted_skills 

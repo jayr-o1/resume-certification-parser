@@ -1,0 +1,19 @@
+{
+  "file": "Resume-Maricel-Olores-A4-3-1.pdf",
+  "skills": [
+    {
+      "name": "Communication",
+      "proficiency": "Intermediate",
+      "confidence": 0.6,
+      "is_technical": false,
+      "is_backed": false
+    }
+  ],
+  "certifications": [],
+  "industry": "education",
+  "industry_scores": {
+    "education": 0.33,
+    "finance": 0.2,
+    "sales": 0.2
+  }
+}
