@@ -75,7 +75,7 @@ class SkillProcessor:
         """
         default_db = {
             "technical_skills": [
-                "Python", "Java", "JavaScript", "SQL", "C++", "C#", "Ruby", "PHP",
+                "Python", "Java", "JavaScript", "SQL", "C++", "Ruby", "PHP",
                 "Swift", "Go", "Rust", "HTML", "CSS", "React", "Angular", "Vue.js",
                 "Node.js", "Express", "Django", "Flask", "Spring", "Ruby on Rails",
                 "TensorFlow", "PyTorch", "scikit-learn", "Pandas", "NumPy", "R",
@@ -122,9 +122,10 @@ class SkillProcessor:
             # Add the original skill
             variations[skill.lower()] = skill
             
-            # Add without punctuation
+            # Add without punctuation, but be careful with C#
+            # Don't add 'c' as a variation for C#
             clean_skill = re.sub(r'[^\w\s]', '', skill)
-            if clean_skill.lower() != skill.lower():
+            if clean_skill.lower() != skill.lower() and skill != "C#":
                 variations[clean_skill.lower()] = skill
                 
             # Add common abbreviations
@@ -134,12 +135,55 @@ class SkillProcessor:
                 variations["ts"] = skill
             elif skill == "Python":
                 variations["py"] = skill
+            elif skill == "Microsoft SQL Server":
+                variations["sql server"] = skill
+                variations["ms sql"] = skill
+                variations["mssql"] = skill
+            elif skill == "PostgreSQL":
+                variations["postgres"] = skill
+            
+            # Database-specific variations
+            if skill == "PL/SQL":
+                variations["plsql"] = skill
+                variations["pl sql"] = skill
+            elif skill == "T-SQL":
+                variations["tsql"] = skill
+                variations["t sql"] = skill
+            elif skill == "ER Diagrams":
+                variations["entity relationship diagrams"] = skill
+                variations["er diagram"] = skill
+                variations["erd"] = skill
+            
+            # Data-related terms
+            if skill == "ETL Processes":
+                variations["etl"] = skill
+                variations["extract transform load"] = skill
+            elif skill == "Backup & Recovery":
+                variations["backup and recovery"] = skill
+                variations["database backup"] = skill
             
             # Add framework variations
             if "." in skill:
                 # For skills like "Vue.js", also match "Vue"
                 base_name = skill.split('.')[0]
                 variations[base_name.lower()] = skill
+            
+            # Handle multi-word technical skills
+            if " " in skill:
+                words = skill.split()
+                # For longer skills, also match the key part
+                if len(words) >= 2:
+                    # Add the last word for things like "Microsoft SQL Server" -> "Server"
+                    if len(words[-1]) > 3:  # Only if the last word is substantive
+                        variations[words[-1].lower()] = skill
+                    
+                    # Add first + last for things like "Microsoft SQL Server" -> "Microsoft Server"
+                    if len(words) >= 3:
+                        variations[words[0].lower() + " " + words[-1].lower()] = skill
+                    
+                    # Add just first word for technical products
+                    if words[0] not in ["data", "database", "software", "web", "mobile"]:
+                        variations[words[0].lower()] = skill
         
         # Add variations for soft skills
         for skill in self.soft_skills:
@@ -151,6 +195,27 @@ class SkillProcessor:
                 # Add both hyphenated and non-hyphenated versions
                 variations["-".join(words).lower()] = skill
                 variations["".join(words).lower()] = skill
+                
+                # For education-related terms
+                if skill in ["Curriculum Development", "Instructional Design", 
+                            "Student-Centered Learning", "Classroom Teaching",
+                            "Online Teaching", "Assessment & Evaluation"]:
+                    # Add the key word as variation
+                    key_word = words[0].lower()
+                    if key_word not in ["and", "of", "for", "with"]:
+                        variations[key_word] = skill
+                        
+                    # Add common variations specific to education field
+                    if skill == "Curriculum Development":
+                        variations["curriculum design"] = skill
+                        variations["curriculum creation"] = skill
+                    elif skill == "Student-Centered Learning":
+                        variations["student centered"] = skill
+                        variations["learner centered"] = skill
+                    elif skill == "Assessment & Evaluation":
+                        variations["assessment"] = skill
+                        variations["evaluation"] = skill
+                        variations["assessment and evaluation"] = skill
         
         return variations
     
@@ -169,39 +234,215 @@ class SkillProcessor:
         # Extract using NLP
         doc = nlp(text)
         
-        # Look for skills in the text
+        # Extract skills using pattern matching first
+        pattern_skills = self._extract_with_patterns(text)
+        
+        # Use a mapping to track skill mentions with confidence scores
+        skill_mentions = {}
+        
+        # Add pattern-matched skills to the mentions dictionary
+        for skill in pattern_skills:
+            skill_name = skill["name"]
+            if skill_name not in skill_mentions:
+                skill_mentions[skill_name] = {
+                    "mentions": 1,
+                    "context": [skill["context"]],
+                    "sources": ["pattern_match"],
+                    "is_technical": skill["is_technical"],
+                    "is_backed": False,
+                    "priority": skill.get("priority", 0)
+                }
+            else:
+                skill_mentions[skill_name]["mentions"] += 1
+                skill_mentions[skill_name]["context"].append(skill["context"])
+                if "pattern_match" not in skill_mentions[skill_name]["sources"]:
+                    skill_mentions[skill_name]["sources"].append("pattern_match")
+                # Use the highest priority found
+                skill_mentions[skill_name]["priority"] = max(skill_mentions[skill_name]["priority"], skill.get("priority", 0))
+        
+        # Look for skills in the text using NLP tokens
         for token in doc:
             cleaned_token = token.text.lower()
             if cleaned_token in self.skill_variations:
                 canonical_name = self.skill_variations[cleaned_token]
-                skill_dict = {
-                    "name": canonical_name,
-                    "context": self._get_context(doc, token),
-                    "is_technical": canonical_name in self.technical_skills,
-                    "is_backed": False,  # Default to not backed
-                    "source": "nlp_token"
-                }
-                extracted_skills.append(skill_dict)
+                
+                # Skip if token is too generic or commonly used in other contexts
+                if len(token.text) < 2 and token.text.lower() not in ["r", "c"]:
+                    continue
+                    
+                # Get surrounding context
+                context = self._get_context(doc, token)
+                
+                # Skip if context suggests it's not a skill mention
+                if self._is_not_skill_context(context, canonical_name):
+                    continue
+                
+                # Add to skill mentions
+                if canonical_name not in skill_mentions:
+                    skill_mentions[canonical_name] = {
+                        "mentions": 1,
+                        "context": [context],
+                        "sources": ["nlp_token"],
+                        "is_technical": canonical_name in self.technical_skills,
+                        "is_backed": False,
+                        "priority": 0  # Default lower priority for NLP tokens
+                    }
+                else:
+                    skill_mentions[canonical_name]["mentions"] += 1
+                    skill_mentions[canonical_name]["context"].append(context)
+                    if "nlp_token" not in skill_mentions[canonical_name]["sources"]:
+                        skill_mentions[canonical_name]["sources"].append("nlp_token")
         
         # Extract skills from multi-token entities
         for chunk in doc.noun_chunks:
             chunk_text = chunk.text.lower()
             if chunk_text in self.skill_variations:
                 canonical_name = self.skill_variations[chunk_text]
-                skill_dict = {
-                    "name": canonical_name,
-                    "context": self._get_context(doc, chunk),
-                    "is_technical": canonical_name in self.technical_skills,
-                    "is_backed": False,  # Default to not backed
-                    "source": "nlp_chunk"
-                }
-                extracted_skills.append(skill_dict)
+                
+                # Get surrounding context
+                context = self._get_context(doc, chunk)
+                
+                # Skip if context suggests it's not a skill mention
+                if self._is_not_skill_context(context, canonical_name):
+                    continue
+                
+                # Add to skill mentions
+                if canonical_name not in skill_mentions:
+                    skill_mentions[canonical_name] = {
+                        "mentions": 1,
+                        "context": [context],
+                        "sources": ["nlp_chunk"],
+                        "is_technical": canonical_name in self.technical_skills,
+                        "is_backed": False,
+                        "priority": 0  # Default lower priority for NLP chunks
+                    }
+                else:
+                    skill_mentions[canonical_name]["mentions"] += 1
+                    skill_mentions[canonical_name]["context"].append(context)
+                    if "nlp_chunk" not in skill_mentions[canonical_name]["sources"]:
+                        skill_mentions[canonical_name]["sources"].append("nlp_chunk")
         
-        # Extract skills using regex patterns
-        extracted_skills.extend(self._extract_with_patterns(text))
+        # Convert skill mentions to skill dictionaries, filtering out low-confidence skills
+        for skill_name, data in skill_mentions.items():
+            # Verification step: ensure skill is actually in the text with proper boundaries
+            explicit_mention = re.search(r'\b' + re.escape(skill_name) + r'\b', text, re.IGNORECASE)
+            if not explicit_mention:
+                # Skip skills not explicitly mentioned
+                continue
+                
+            # Special case for programming languages and one-letter skills
+            special_skills = ["C++", "C#", "R", "Go", "C", "J"]
+            if skill_name in special_skills:
+                # Require stronger evidence for these often mis-detected skills
+                strong_evidence = (
+                    data["priority"] >= 2 or  # High priority section
+                    data["mentions"] >= 2 or  # Multiple mentions
+                    self._is_programming_context(text, skill_name)  # Clear programming context
+                )
+                
+                if not strong_evidence:
+                    # Skip ambiguous skills without strong evidence
+                    continue
+            
+            # Skip skills with only one mention from a single source unless it's in a strong context
+            has_strong_context = any(self._is_strong_skill_context(ctx, skill_name) for ctx in data["context"])
+            
+            # Apply stricter filters based on confidence factors
+            if (data["mentions"] < 2 and len(data["sources"]) < 2 and not has_strong_context and data["priority"] < 2):
+                # Skip low-confidence skills
+                continue
+                
+            # Get the richest context
+            best_context = max(data["context"], key=len)
+            
+            # Add the skill
+            skill_dict = {
+                "name": skill_name,
+                "context": best_context,
+                "is_technical": data["is_technical"],
+                "is_backed": data["is_backed"],
+                "source": ",".join(data["sources"]),
+                "confidence_boost": data["priority"] * 0.1  # Convert priority to confidence boost
+            }
+            extracted_skills.append(skill_dict)
         
-        # Deduplicate skills
-        return self._deduplicate_skills(extracted_skills)
+        return extracted_skills
+    
+    def _is_not_skill_context(self, context, skill_name):
+        """
+        Check if the context suggests this is not actually a skill mention
+        
+        Args:
+            context (str): Context around the potential skill
+            skill_name (str): The skill name
+            
+        Returns:
+            bool: True if this is not a skill context, False otherwise
+        """
+        # Negative contexts that suggest this is not a skill mention
+        negative_patterns = [
+            r"not familiar with " + re.escape(skill_name),
+            r"no experience (?:with|in) " + re.escape(skill_name),
+            r"would like to learn " + re.escape(skill_name),
+            r"interested in learning " + re.escape(skill_name),
+            r"plan(?:s|ning)? to learn " + re.escape(skill_name)
+        ]
+        
+        # Check if any negative pattern matches
+        for pattern in negative_patterns:
+            if re.search(pattern, context, re.IGNORECASE):
+                return True
+                
+        # For programming languages, check if they're mentioned in education context only
+        if skill_name in ["C++", "Java", "Python", "JavaScript"]:
+            education_only_patterns = [
+                r"course(?:s|work)? (?:in|on) " + re.escape(skill_name),
+                r"(?:introduction|intro) to " + re.escape(skill_name),
+                r"studied " + re.escape(skill_name)
+            ]
+            
+            # If it appears in education context, ensure it also appears elsewhere
+            education_matches = any(re.search(pattern, context, re.IGNORECASE) for pattern in education_only_patterns)
+            
+            if education_matches and not re.search(r"experience (?:with|in|using) " + re.escape(skill_name), context, re.IGNORECASE):
+                return True
+                
+        return False
+        
+    def _is_strong_skill_context(self, context, skill_name):
+        """
+        Check if the context strongly indicates this is a skill
+        
+        Args:
+            context (str): Context around the potential skill
+            skill_name (str): The skill name
+            
+        Returns:
+            bool: True if this is a strong skill context, False otherwise
+        """
+        # Patterns indicating strong skill evidence
+        strong_patterns = [
+            r"experience (?:with|in|using) " + re.escape(skill_name),
+            r"proficient (?:in|with) " + re.escape(skill_name),
+            r"knowledge of " + re.escape(skill_name),
+            r"skilled (?:in|with) " + re.escape(skill_name),
+            r"expertise (?:in|with) " + re.escape(skill_name),
+            r"practiced (?:in|with) " + re.escape(skill_name),
+            r"(?:extensive|advanced) " + re.escape(skill_name),
+            r"skills?:.*" + re.escape(skill_name),
+            r"technologies:.*" + re.escape(skill_name),
+            r"technical skills:.*" + re.escape(skill_name),
+            r"languages:.*" + re.escape(skill_name),
+            r"programming:.*" + re.escape(skill_name),
+            r"database:.*" + re.escape(skill_name) 
+        ]
+        
+        # Check if any strong pattern matches
+        for pattern in strong_patterns:
+            if re.search(pattern, context, re.IGNORECASE):
+                return True
+                
+        return False
     
     def _get_context(self, doc, target, window=5):
         """
@@ -236,20 +477,40 @@ class SkillProcessor:
         """
         extracted_skills = []
         
-        # Common patterns in resumes and certifications
+        # Common patterns in resumes and certifications - prioritize sections that clearly indicate skills
         patterns = [
-            # Skills in lists
-            r'(?:^|\n)[\s\-•*>]+([^•\n]+)',
-            # Skills in technology/skills sections
-            r'(?:technologies|technical skills|tools|languages|frameworks|skills)(?:[:\s]+)([^\n]+)',
-            # Skills in parentheses
-            r'\(([^)]+)\)',
-            # Skills as comma or semicolon separated lists
-            r'(?:proficient in|experience with|knowledge of|familiar with|skilled in)[\s:]+([^\.;]+)'
+            # Skills in dedicated sections - highest priority
+            (r'(?:technical skills|programming languages|database technologies|development tools|software proficiencies|key skills|core competencies)(?:[:\s]+)([^\n\.]+)', 'skills_section', 3),
+            
+            # Database-specific sections - high priority for database roles
+            (r'(?:database|data|sql|query language|data modeling|data warehousing)(?:\s+)(?:technologies|skills|proficiencies|expertise|knowledge)(?:[:\s]+)([^\n\.]+)', 'database_section', 3),
+            
+            # Education and teaching sections for non-technical skills
+            (r'(?:teaching|education|instruction|instructional design|curriculum|pedagogical)(?:\s+)(?:skills|experience|expertise|competencies)(?:[:\s]+)([^\n\.]+)', 'education_section', 3),
+            
+            # Skills in technology sections - high priority
+            (r'(?:technologies|tools|languages|frameworks|platforms|environments)(?:[:\s]+)([^\n\.]+)', 'tech_section', 2),
+            
+            # Skills with experience indicators - high priority
+            (r'(?:proficient in|experience with|knowledge of|familiar with|skilled in|expertise in|competent with)[\s:]+([^\.;]+)', 'experience_indicator', 2),
+            
+            # Skills in section headers - medium priority
+            (r'(?:^|\n)(?:programming|database|software|web|development|mobile|teaching|instruction)(?:[:\s]+)([^\.;\n]+)', 'section_header', 1),
+            
+            # Skills in parentheses - often used for clarification
+            (r'\(([^)]{3,30})\)', 'parenthetical', 1),
+            
+            # Skills listed in bullet points or list items - lower priority
+            (r'(?:^|\n)[\s\-•*>]+([^•\n:]+)(?:\n|$)', 'bullet_point', 0)
         ]
         
-        for pattern in patterns:
+        # Gather all matches first
+        all_matches = []
+        
+        for pattern_tuple in patterns:
+            pattern, source_type, priority = pattern_tuple
             matches = re.finditer(pattern, text, re.IGNORECASE)
+            
             for match in matches:
                 # Get the matched text and its surrounding context
                 match_text = match.group(1).strip()
@@ -257,19 +518,115 @@ class SkillProcessor:
                 end = min(len(text), match.end() + 50)
                 context = text[start:end]
                 
-                # Check for individual skills within matches (comma/semicolon separated)
-                for skill_candidate in re.split(r'[,;/]', match_text):
-                    skill_candidate = skill_candidate.strip().lower()
-                    if skill_candidate in self.skill_variations:
-                        canonical_name = self.skill_variations[skill_candidate]
+                # Store the match information
+                all_matches.append({
+                    "text": match_text,
+                    "context": context,
+                    "source_type": source_type,
+                    "priority": priority
+                })
+        
+        # Now process the matches to extract skills
+        for match_info in all_matches:
+            match_text = match_info["text"]
+            context = match_info["context"]
+            source_type = match_info["source_type"]
+            priority = match_info["priority"]
+            
+            # Different splitting strategies based on source type
+            if source_type in ["skills_section", "tech_section", "database_section", "education_section", "experience_indicator"]:
+                # Use more aggressive splitting for explicit skill sections
+                skill_candidates = re.split(r'[,;/&]|\band\b', match_text)
+            else:
+                # More conservative splitting for other contexts
+                skill_candidates = re.split(r'[,;/]', match_text)
+            
+            for skill_candidate in skill_candidates:
+                skill_candidate = skill_candidate.strip().lower()
+                
+                # Skip empty or very short candidates
+                if len(skill_candidate) < 2:
+                    continue
+                    
+                # Skip candidates that are just numbers or single letters
+                if skill_candidate.isdigit() or (len(skill_candidate) == 1 and skill_candidate.isalpha()):
+                    continue
+                
+                # Skip common words that aren't skills
+                if skill_candidate in ["and", "or", "with", "using", "including", "such", "as", "like", "etc", "other", "years"]:
+                    continue
+                
+                # Special handling for multi-word skills - look for them before splitting
+                # Check for exact multi-word matches first
+                found_multiword = False
+                for var, skill in self.skill_variations.items():
+                    if len(var.split()) > 1 and var in skill_candidate:
+                        # This is a multi-word skill match
+                        confidence_boost = 0
+                        if priority >= 2:  # High priority context
+                            confidence_boost = 0.2
+                        elif priority == 1:  # Medium priority context
+                            confidence_boost = 0.1
+                        
                         skill_dict = {
-                            "name": canonical_name,
+                            "name": skill,
                             "context": context,
-                            "is_technical": canonical_name in self.technical_skills,
+                            "is_technical": skill in self.technical_skills,
                             "is_backed": False,  # Default to not backed
-                            "source": "pattern_match"
+                            "source": f"pattern_match_{source_type}_multiword",
+                            "confidence_boost": confidence_boost,
+                            "priority": priority
                         }
                         extracted_skills.append(skill_dict)
+                        found_multiword = True
+                
+                # Skip overly long candidates (likely not a skill)
+                if len(skill_candidate.split()) > 4:
+                    continue
+                
+                # Special handling for programming languages and other special skills
+                special_skills = ["c++", "c#", "r", "go", "swift"]
+                if skill_candidate in special_skills:
+                    # Always require proper capitalization for these special skills
+                    proper_case = {"c++": "C++", "c#": "C#", "r": "R", "go": "Go", "swift": "Swift"}
+                    proper_form = proper_case[skill_candidate]
+                    
+                    # Only allow these skills in high-priority contexts or with proper capitalization
+                    if not ((priority >= 2) or 
+                            re.search(r'\b' + re.escape(proper_form) + r'\b', context) or
+                            re.search(r'programming language[s]?.*\b' + re.escape(skill_candidate) + r'\b', context, re.IGNORECASE)):
+                        continue
+                
+                if skill_candidate in self.skill_variations and not found_multiword:
+                    canonical_name = self.skill_variations[skill_candidate]
+                    
+                    # Skip if it's just a common word that might be mistaken for a skill
+                    if canonical_name.lower() in ["a", "an", "the", "in", "on", "at", "by", "for", "with"]:
+                        continue
+                    
+                    # For single letter skills like 'C' or 'R', require explicit programming context
+                    if len(canonical_name) == 1:
+                        if not (re.search(r'\bprogramming\s+language[s]?\b.*\b' + re.escape(canonical_name) + r'\b', context, re.IGNORECASE) or
+                                re.search(r'\b' + re.escape(canonical_name) + r' programming\b', context, re.IGNORECASE)):
+                            continue
+                    
+                    # Add weight to the confidence based on source type
+                    confidence_boost = 0
+                    if priority >= 2:  # High priority context
+                        confidence_boost = 0.2
+                    elif priority == 1:  # Medium priority context
+                        confidence_boost = 0.1
+                    
+                    skill_dict = {
+                        "name": canonical_name,
+                        "context": context,
+                        "is_technical": canonical_name in self.technical_skills,
+                        "is_backed": False,  # Default to not backed
+                        "source": f"pattern_match_{source_type}",
+                        "confidence_boost": confidence_boost,
+                        "priority": priority
+                    }
+                    extracted_skills.append(skill_dict)
         
         return extracted_skills
     
@@ -319,14 +676,79 @@ class SkillProcessor:
         
         return resume_skills
 
+    def _is_programming_context(self, text, skill_name):
+        """
+        Check if a skill is mentioned in a programming or technology context
+        
+        Args:
+            text (str): The full text to check
+            skill_name (str): The skill name
+            
+        Returns:
+            bool: True if in programming context, False otherwise
+        """
+        # Define programming context patterns
+        programming_patterns = [
+            r'programming\s+languages?.*\b' + re.escape(skill_name) + r'\b',
+            r'software\s+development.*\b' + re.escape(skill_name) + r'\b',
+            r'technical\s+skills?.*\b' + re.escape(skill_name) + r'\b',
+            r'technologies.*\b' + re.escape(skill_name) + r'\b',
+            r'languages.*\b' + re.escape(skill_name) + r'\b',
+            r'proficient\s+in.*\b' + re.escape(skill_name) + r'\b',
+            r'skills.*\b' + re.escape(skill_name) + r'\b',
+            r'\b' + re.escape(skill_name) + r'\b\s+programming',
+            r'\b' + re.escape(skill_name) + r'\b\s+development'
+        ]
+        
+        # Database-specific context patterns
+        database_patterns = [
+            r'database.*\b' + re.escape(skill_name) + r'\b',
+            r'query\s+languages?.*\b' + re.escape(skill_name) + r'\b',
+            r'data\s+technologies.*\b' + re.escape(skill_name) + r'\b',
+            r'data\s+warehousing.*\b' + re.escape(skill_name) + r'\b',
+            r'sql.*\b' + re.escape(skill_name) + r'\b',
+            r'schema.*\b' + re.escape(skill_name) + r'\b',
+            r'data\s+modeling.*\b' + re.escape(skill_name) + r'\b',
+            r'etl.*\b' + re.escape(skill_name) + r'\b'
+        ]
+        
+        # Teaching and education context patterns
+        teaching_patterns = [
+            r'teaching.*\b' + re.escape(skill_name) + r'\b',
+            r'education.*\b' + re.escape(skill_name) + r'\b',
+            r'curriculum.*\b' + re.escape(skill_name) + r'\b',
+            r'instruction.*\b' + re.escape(skill_name) + r'\b',
+            r'classroom.*\b' + re.escape(skill_name) + r'\b',
+            r'learning.*\b' + re.escape(skill_name) + r'\b',
+            r'assessment.*\b' + re.escape(skill_name) + r'\b',
+            r'student.*\b' + re.escape(skill_name) + r'\b'
+        ]
+        
+        # Version control context patterns
+        vcs_patterns = [
+            r'version\s+control.*\b' + re.escape(skill_name) + r'\b',
+            r'code\s+management.*\b' + re.escape(skill_name) + r'\b',
+            r'repository.*\b' + re.escape(skill_name) + r'\b',
+            r'git.*\b' + re.escape(skill_name) + r'\b'
+        ]
+        
+        # All patterns to check
+        all_patterns = programming_patterns + database_patterns + teaching_patterns + vcs_patterns
+        
+        # Check if any pattern matches
+        return any(re.search(pattern, text, re.IGNORECASE) for pattern in all_patterns)
+
 
 class ProficiencyCalculator:
     """
     Calculate proficiency levels for skills based on context
     """
     
-    def __init__(self):
+    def __init__(self, technical_skills=None):
         """Initialize the proficiency calculator with indicators"""
+        # Store technical skills reference
+        self.technical_skills = technical_skills or []
+        
         # Proficiency levels and indicators similar to the existing proficiency calculator
         self.proficiency_indicators = {
             # Beginner level keywords (rule-following, assisted work)
@@ -436,7 +858,7 @@ class ProficiencyCalculator:
             ]
         }
     
-    def calculate_proficiency(self, skill_name, context, certification_text=None, is_backed=False):
+    def calculate_proficiency(self, skill_name, context, certification_text=None, is_backed=False, confidence_boost=0):
         """
         Calculate proficiency level for a skill based on its context
         
@@ -445,6 +867,7 @@ class ProficiencyCalculator:
             context (str): The context around the skill mention
             certification_text (str, optional): Text from certifications
             is_backed (bool): Whether the skill is backed by a certification
+            confidence_boost (float): Additional confidence boost from extraction method
             
         Returns:
             tuple: (proficiency_level, confidence_score)
@@ -452,25 +875,41 @@ class ProficiencyCalculator:
         # Initialize scores for each proficiency level
         scores = {level: 0 for level in PROFICIENCY_LEVELS}
         
-        # Score based on keyword indicators in context
-        for level, indicators in self.proficiency_indicators.items():
-            for indicator in indicators:
-                if re.search(r'\b' + re.escape(indicator) + r'\b', context, re.IGNORECASE):
-                    scores[level] += 1
+        # Check if this is a technical or language skill
+        is_tech_skill = self.technical_skills and skill_name in self.technical_skills
+        is_language = skill_name.lower() in ["python", "java", "javascript", "sql", "c++", "r", "php"]
         
-        # Score based on duration indicators in context
-        for level, patterns in self.duration_indicators.items():
-            for pattern in patterns:
-                if re.search(pattern, context, re.IGNORECASE):
-                    scores[level] += 2  # Duration is a stronger indicator
+        # Extract sentences mentioning the skill for more precise context analysis
+        skill_sentences = []
+        for sentence in re.split(r'[.!?]+', context):
+            if re.search(r'\b' + re.escape(skill_name) + r'\b', sentence, re.IGNORECASE):
+                skill_sentences.append(sentence.strip())
         
-        # Score based on action verbs in context
-        for level, verbs in self.action_verb_indicators.items():
-            for verb in verbs:
-                # Look for verbs near the skill name
-                pattern = r'(?i)(?:' + re.escape(verb) + r'.*?\b' + re.escape(skill_name) + r'\b|\b' + re.escape(skill_name) + r'\b.*?' + re.escape(verb) + r')'
-                if re.search(pattern, context, re.IGNORECASE):
-                    scores[level] += 1.5  # Action verbs are strong indicators
+        # If no specific sentences found, use the whole context
+        if not skill_sentences:
+            skill_sentences = [context]
+            
+        # Analyze each sentence for proficiency indicators
+        for sentence in skill_sentences:
+            # Look for proficiency indicators in this specific sentence
+            for level, indicators in self.proficiency_indicators.items():
+                for indicator in indicators:
+                    if re.search(r'\b' + re.escape(indicator) + r'\b', sentence, re.IGNORECASE):
+                        scores[level] += 1
+            
+            # Look for duration indicators in this specific sentence
+            for level, patterns in self.duration_indicators.items():
+                for pattern in patterns:
+                    if re.search(pattern, sentence, re.IGNORECASE):
+                        scores[level] += 2  # Duration is a stronger indicator
+            
+            # Look for action verbs in this specific sentence
+            for level, verbs in self.action_verb_indicators.items():
+                for verb in verbs:
+                    # Look for verbs near the skill name
+                    pattern = r'(?i)(?:' + re.escape(verb) + r'.*?\b' + re.escape(skill_name) + r'\b|\b' + re.escape(skill_name) + r'\b.*?' + re.escape(verb) + r')'
+                    if re.search(pattern, sentence, re.IGNORECASE):
+                        scores[level] += 1.5  # Action verbs are strong indicators
         
         # If certification text is provided, check for certification indicators
         if certification_text:
@@ -481,38 +920,74 @@ class ProficiencyCalculator:
                     if re.search(pattern, certification_text, re.IGNORECASE):
                         scores[level] += 3  # Certification indicators are strongest
         
-        # If skill is backed by certification, boost scores for Intermediate and above
+        # If skill is backed by certification, boost scores appropriately
         if is_backed:
             scores["Beginner"] += 1
             scores["Intermediate"] += 2
             scores["Advanced"] += 1
             logger.info(f"Boosting proficiency scores for backed skill: {skill_name}")
             
-        # Default boost for all skills to prevent everything being classified as Beginner
-        # This assumes people wouldn't list skills they're not at least somewhat proficient in
-        scores["Intermediate"] += 1
+        # For technical skills, add baseline boost based on context
+        if is_tech_skill:
+            # Check if skill is mentioned in a key skills section or with strong indicators
+            tech_skill_patterns = [
+                r"technical skills.*" + re.escape(skill_name),
+                r"programming languages.*" + re.escape(skill_name),
+                r"database technologies.*" + re.escape(skill_name),
+                r"development tools.*" + re.escape(skill_name),
+                r"proficient in.*" + re.escape(skill_name)
+            ]
+            
+            if any(re.search(pattern, context, re.IGNORECASE) for pattern in tech_skill_patterns):
+                scores["Intermediate"] += 1.5
         
-        # For technical skills, assume a higher baseline
-        if skill_name in ["Python", "Java", "JavaScript", "SQL", "C++", "C#"]:
+        # Look for actual work or project experience with the skill
+        experience_patterns = [
+            r"(?:developed|built|created|implemented|designed).*" + re.escape(skill_name),
+            r"project.*" + re.escape(skill_name),
+            r"application.*" + re.escape(skill_name),
+            r"system.*" + re.escape(skill_name),
+            r"production.*" + re.escape(skill_name)
+        ]
+        
+        if any(re.search(pattern, context, re.IGNORECASE) for pattern in experience_patterns):
+            # Evidence of actual use boosts Intermediate and Advanced scores
             scores["Intermediate"] += 1
+            scores["Advanced"] += 0.5
         
         # Determine the proficiency level with the highest score
         max_score = max(scores.values())
-        if max_score == 0:
-            # Default to Intermediate if no indicators found
-            return "Intermediate", 0.6
+        
+        # Default to Beginner if no strong indicators
+        if max_score < 1:
+            # Default assumptions based on skill type
+            if is_language:
+                return "Beginner", 0.6 + confidence_boost
+            else:
+                return "Beginner", 0.5 + confidence_boost
         
         # Get the highest scoring level
         proficiency_level = max(scores.items(), key=lambda x: x[1])[0]
         
         # Calculate confidence based on the difference between the highest and second highest score
         sorted_scores = sorted(scores.values(), reverse=True)
-        if len(sorted_scores) > 1:
+        if len(sorted_scores) > 1 and sorted_scores[0] > 0:
             score_diff = sorted_scores[0] - sorted_scores[1]
-            confidence = min(0.6 + (score_diff * 0.1), 1.0)
+            # Base confidence on score difference with minimum threshold
+            confidence = min(0.5 + (score_diff * 0.1) + confidence_boost, 0.9)
         else:
-            confidence = 0.7
+            confidence = 0.6 + confidence_boost
         
+        # Cap confidence for certain scenarios
+        if not is_backed and proficiency_level in ["Advanced", "Expert"]:
+            # Non-backed advanced claims have slightly lower confidence
+            confidence = min(confidence, 0.8)
+            
+        # Adjust proficiency based on context if confidence is low
+        if confidence < 0.65 and proficiency_level in ["Advanced", "Expert"]:
+            # Downgrade to Intermediate if confidence is too low for Advanced/Expert
+            proficiency_level = "Intermediate"
+            
         logger.info(f"Calculated proficiency for {skill_name}: {proficiency_level} (Confidence: {confidence:.2f})")
         logger.info(f"Scores: {scores}")
         
@@ -662,7 +1137,7 @@ def process_files(input_path, args):
     # Initialize processors
     document_processor = DocumentProcessor(args.tesseract_path)
     skill_processor = SkillProcessor(args.skills_db)
-    proficiency_calculator = ProficiencyCalculator()
+    proficiency_calculator = ProficiencyCalculator(skill_processor.technical_skills)
     
     all_results = {}
     
@@ -821,6 +1296,32 @@ def process_single_file(file_path, document_processor, skill_processor, proficie
     # Calculate proficiency levels for each skill
     processed_skills = []
     for skill in extracted_skills:
+        # Verify that the skill is actually mentioned in the text with strict boundary checking
+        skill_name = skill["name"]
+        explicit_mention = re.search(r'\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE)
+        
+        if not explicit_mention:
+            if args.verbose:
+                logger.warning(f"Skipping skill {skill_name} - not explicitly mentioned in text")
+            continue
+            
+        # Special validation for potentially ambiguous skills
+        if skill_name in ["C++", "R"]:
+            # More strict verification - ensure it's in a skills or programming context
+            programming_context = any([
+                re.search(r'programming.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE),
+                re.search(r'languages.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE),
+                re.search(r'skills.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE),
+                re.search(r'technologies.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE),
+                re.search(r'proficient.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE),
+                re.search(r'experience.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE)
+            ])
+            
+            if not programming_context:
+                if args.verbose:
+                    logger.warning(f"Skipping ambiguous skill {skill_name} - not in proper context")
+                continue
+        
         # Get certification text for this skill if available
         cert_text = ""
         if cert_texts:
@@ -828,11 +1329,16 @@ def process_single_file(file_path, document_processor, skill_processor, proficie
                 if skill["name"].lower() in text.lower():
                     cert_text += text + " "
         
+        # Get the confidence boost if available
+        confidence_boost = skill.get("confidence_boost", 0)
+        
+        # Calculate proficiency
         proficiency_level, confidence = proficiency_calculator.calculate_proficiency(
             skill["name"], 
             skill["context"],
             certification_text=cert_text if cert_text else None,
-            is_backed=skill.get("is_backed", False)
+            is_backed=skill.get("is_backed", False),
+            confidence_boost=confidence_boost
         )
         
         # Add proficiency information to the skill

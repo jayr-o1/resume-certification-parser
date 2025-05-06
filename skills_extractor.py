@@ -14,6 +14,7 @@ import json
 import argparse
 import logging
 import glob
+import re
 from extract_and_process import DocumentProcessor, SkillProcessor, ProficiencyCalculator
 
 # Configure logging
@@ -37,7 +38,7 @@ def extract_skills(input_path, output_path=None, tesseract_path=None):
     # Initialize processors
     document_processor = DocumentProcessor(tesseract_path)
     skill_processor = SkillProcessor()
-    proficiency_calculator = ProficiencyCalculator()
+    proficiency_calculator = ProficiencyCalculator(skill_processor.technical_skills)
     
     # Default output path if not provided
     if not output_path:
@@ -118,6 +119,29 @@ def extract_skills(input_path, output_path=None, tesseract_path=None):
             processed_skills = []
             
             for skill in backed_skills:
+                # Verify that the skill is actually mentioned in the text
+                skill_name = skill["name"]
+                explicit_mention = re.search(r'\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE)
+                
+                if not explicit_mention:
+                    logger.warning(f"Skipping skill {skill_name} - not explicitly mentioned in text")
+                    continue
+                    
+                # Special validation for potentially ambiguous skills
+                if skill_name in ["C++", "R"]:
+                    # More strict verification for programming languages
+                    programming_context = any([
+                        re.search(r'programming.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE),
+                        re.search(r'languages.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE),
+                        re.search(r'skills.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE),
+                        re.search(r'technologies.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE),
+                        re.search(r'proficient.*\b' + re.escape(skill_name) + r'\b', extracted_text, re.IGNORECASE)
+                    ])
+                    
+                    if not programming_context:
+                        logger.warning(f"Skipping ambiguous skill {skill_name} - not in proper context")
+                        continue
+                    
                 # Get certification text for this skill if available
                 cert_text = ""
                 for cert_file, text in cert_texts.items():

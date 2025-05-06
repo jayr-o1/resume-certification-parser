@@ -49,7 +49,7 @@ class SkillExtractor:
         """
         default_db = {
             "technical_skills": [
-                "Python", "Java", "JavaScript", "SQL", "C++", "C#", "Ruby", "PHP",
+                "Python", "Java", "JavaScript", "SQL", "C++", "Ruby", "PHP",
                 "Swift", "Go", "Rust", "HTML", "CSS", "React", "Angular", "Vue.js",
                 "Node.js", "Express", "Django", "Flask", "Spring", "Ruby on Rails",
                 "TensorFlow", "PyTorch", "scikit-learn", "Pandas", "NumPy", "R",
@@ -96,9 +96,10 @@ class SkillExtractor:
             # Add the original skill
             variations[skill.lower()] = skill
             
-            # Add without punctuation
+            # Add without punctuation, but be careful with C#
+            # Don't add 'c' as a variation for C#
             clean_skill = re.sub(r'[^\w\s]', '', skill)
-            if clean_skill.lower() != skill.lower():
+            if clean_skill.lower() != skill.lower() and skill != "C#":
                 variations[clean_skill.lower()] = skill
                 
             # Add common abbreviations
@@ -581,31 +582,62 @@ class SkillExtractor:
         
     def _match_skill(self, text):
         """
-        Match a text to a known skill
+        Match a skill in the given text
         
         Args:
-            text (str): Text to match
+            text (str): Text to match skills in
             
         Returns:
-            str or None: Matched skill name or None
+            list: List of matched skills
         """
-        # Clean and normalize the text
-        cleaned_text = text.strip().lower()
-        cleaned_text = re.sub(r'[^\w\s]', '', cleaned_text)
+        matched_skills = []
         
-        # Direct match
-        if cleaned_text in self.skill_variations:
-            return self.skill_variations[cleaned_text]
+        # Check if text is not empty or too short
+        if not text or len(text) < 2:
+            return matched_skills
             
-        # Check for substring matches (for multi-word skills)
-        for skill_text, canonical_skill in self.skill_variations.items():
-            if len(skill_text) > 3 and skill_text in cleaned_text:
-                # Make sure it's a full word match, not part of another word
-                if re.search(r'\b' + re.escape(skill_text) + r'\b', cleaned_text):
-                    return canonical_skill
+        # Clean the text
+        clean_text = text.lower().strip()
         
-        # No match found
-        return None
+        # Check for direct matches in skill variations
+        if clean_text in self.skill_variations:
+            skill_name = self.skill_variations[clean_text]
+            
+            # Special handling for single-letter skills or potentially ambiguous matches
+            if len(skill_name) == 1 or skill_name in ["C", "R"]:
+                # Ensure it's a standalone word, not part of another word
+                if re.search(r'\b' + re.escape(skill_name) + r'\b', text):
+                    matched_skills.append(skill_name)
+            elif skill_name == "C++":
+                # Ensure C++ is properly formatted, not just matching the text "c++"
+                if re.search(r'\bC\+\+\b', text, re.IGNORECASE):
+                    matched_skills.append(skill_name)
+            else:
+                matched_skills.append(skill_name)
+        
+        # Check for skills within the text (for longer texts)
+        if len(clean_text.split()) > 1:
+            for token in clean_text.split():
+                if token in self.skill_variations:
+                    skill_name = self.skill_variations[token]
+                    
+                    # Avoid false positives for common words
+                    if len(token) < 2 and token not in ["r", "c"]:
+                        continue
+                        
+                    # Special handling for potentially ambiguous matches
+                    if len(skill_name) == 1 or skill_name in ["C", "R"]:
+                        # Ensure it's a standalone word, not part of another word
+                        if re.search(r'\b' + re.escape(skill_name) + r'\b', text):
+                            matched_skills.append(skill_name)
+                    elif skill_name == "C++":
+                        # Ensure C++ is properly formatted
+                        if re.search(r'\bC\+\+\b', text, re.IGNORECASE):
+                            matched_skills.append(skill_name)
+                    else:
+                        matched_skills.append(skill_name)
+        
+        return list(set(matched_skills))  # Remove duplicates
         
     def _deduplicate_skills(self, skills):
         """

@@ -12,6 +12,7 @@ import json
 import shutil
 import tempfile
 import uuid
+import re
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -144,7 +145,7 @@ def process_files(file_paths, output_dir):
     # Initialize processors
     document_processor = DocumentProcessor()
     skill_processor = SkillProcessor()
-    proficiency_calculator = ProficiencyCalculator()
+    proficiency_calculator = ProficiencyCalculator(skill_processor.technical_skills)
     
     # Initialize result containers
     all_skills = []
@@ -231,6 +232,67 @@ def process_files(file_paths, output_dir):
         for cert_file, text in cert_texts.items():
             if skill["name"].lower() in text.lower():
                 cert_text += text + " "
+        
+        # Extra validation - ensure skill is actually mentioned in the original text
+        # Extract text from resumes
+        resume_text = ""
+        for file_path in resume_files:
+            resume_text += document_processor.process_file(file_path) + " "
+            
+        # Initialize specialized skill flags
+        is_database_skill = skill["name"] in ["MySQL", "PostgreSQL", "Oracle", "Microsoft SQL Server", 
+                                            "SQL", "PL/SQL", "T-SQL", "ER Diagrams", "Normalization", 
+                                            "Schema Design", "ETL Processes", "Star Schema"]
+        
+        is_teaching_skill = skill["name"] in ["Curriculum Development", "Student-Centered Learning",
+                                            "Classroom Teaching", "Online Teaching", "Assessment & Evaluation",
+                                            "Instructional Design"]
+                                            
+        # For multi-word skills, check for different patterns
+        if " " in skill["name"]:
+            words = skill["name"].split()
+            # Try different combinations for multi-word skills
+            explicit_skill_pattern = any([
+                re.search(r'\b' + re.escape(skill["name"]) + r'\b', resume_text, re.IGNORECASE),  # Exact match
+                re.search(r'\b' + re.escape(words[0]) + r'.*?' + re.escape(words[-1]) + r'\b', resume_text, re.IGNORECASE),  # First and last word
+                re.search(r'\b' + re.escape(" ".join(words[:2])) + r'\b', resume_text, re.IGNORECASE) if len(words) > 2 else False,  # First two words
+                all(re.search(r'\b' + re.escape(word) + r'\b', resume_text, re.IGNORECASE) for word in words)  # All words separately
+            ])
+        else:
+            # Single word skills
+            explicit_skill_pattern = re.search(r'\b' + re.escape(skill["name"]) + r'\b', resume_text, re.IGNORECASE)
+            
+        # Skip if skill is not mentioned in any form and not in a specialized domain section
+        if not explicit_skill_pattern:
+            # Check if it's in a specialized domain - if so, be more lenient
+            if is_database_skill:
+                db_section_match = re.search(r'database|data|sql|query', resume_text, re.IGNORECASE)
+                if not db_section_match:
+                    logger.warning(f"Skipping database skill {skill['name']} - not explicitly mentioned in resume")
+                    continue
+            elif is_teaching_skill:
+                teaching_section_match = re.search(r'teaching|education|instruction|curriculum', resume_text, re.IGNORECASE)
+                if not teaching_section_match:
+                    logger.warning(f"Skipping teaching skill {skill['name']} - not explicitly mentioned in resume")
+                    continue
+            else:
+                logger.warning(f"Skipping skill {skill['name']} - not explicitly mentioned in resume")
+                continue
+            
+        # Special handling for potentially problematic skills
+        if skill["name"] in ["C++", "R"]:
+            # More strict verification - ensure it's in a skills or programming context
+            programming_context = any([
+                re.search(r'programming.*\b' + re.escape(skill["name"]) + r'\b', resume_text, re.IGNORECASE),
+                re.search(r'languages.*\b' + re.escape(skill["name"]) + r'\b', resume_text, re.IGNORECASE),
+                re.search(r'skills.*\b' + re.escape(skill["name"]) + r'\b', resume_text, re.IGNORECASE),
+                re.search(r'technologies.*\b' + re.escape(skill["name"]) + r'\b', resume_text, re.IGNORECASE),
+                re.search(r'proficient.*\b' + re.escape(skill["name"]) + r'\b', resume_text, re.IGNORECASE)
+            ])
+            
+            if not programming_context:
+                logger.warning(f"Skipping ambiguous skill {skill['name']} - not in programming context")
+                continue
         
         # Calculate proficiency
         proficiency_level, confidence = proficiency_calculator.calculate_proficiency(
