@@ -3,4 +3,5 @@ pytesseract==0.3.10
 Pillow==10.0.0
 spacy==3.6.1
 nltk==3.8.1
+flask-cors==4.0.0
 # Don't forget to run: python -m spacy download en_core_web_sm 

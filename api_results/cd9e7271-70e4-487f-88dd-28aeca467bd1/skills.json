@@ -1,0 +1,85 @@
+{
+  "file": "Jayce_Losero_Resume.pdf",
+  "skills": [
+    {
+      "name": "C#",
+      "proficiency": "Intermediate",
+      "confidence": 0.8,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Git",
+      "proficiency": "Intermediate",
+      "confidence": 0.7,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Java",
+      "proficiency": "Intermediate",
+      "confidence": 0.7,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Mentoring",
+      "proficiency": "Beginner",
+      "confidence": 0.7,
+      "is_technical": false,
+      "is_backed": false
+    },
+    {
+      "name": "MySQL",
+      "proficiency": "Intermediate",
+      "confidence": 0.7,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Oracle",
+      "proficiency": "Intermediate",
+      "confidence": 0.7,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "PHP",
+      "proficiency": "Beginner",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "PostgreSQL",
+      "proficiency": "Intermediate",
+      "confidence": 0.7,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Python",
+      "proficiency": "Intermediate",
+      "confidence": 0.9,
+      "is_technical": true,
+      "is_backed": true
+    },
+    {
+      "name": "R",
+      "proficiency": "Intermediate",
+      "confidence": 0.7,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "SQL",
+      "proficiency": "Intermediate",
+      "confidence": 0.8,
+      "is_technical": true,
+      "is_backed": false
+    }
+  ],
+  "certifications": [
+    "Jayce_Losero_Python_Certificate.png"
+  ]
+}

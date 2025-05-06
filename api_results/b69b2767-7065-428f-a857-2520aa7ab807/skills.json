@@ -74,13 +74,12 @@
     {
       "name": "SQL",
       "proficiency": "Intermediate",
-      "confidence": 0.9,
+      "confidence": 0.8,
       "is_technical": true,
-      "is_backed": true
+      "is_backed": false
     }
   ],
   "certifications": [
-    "Jayce_Losero_Python_Certificate.png",
-    "Jayce_Losero_My_SQL_Certificate.png"
+    "Jayce_Losero_Python_Certificate.png"
   ]
 }

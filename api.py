@@ -13,6 +13,7 @@ import shutil
 import tempfile
 import uuid
 from flask import Flask, request, jsonify, send_file, render_template
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import logging
 from extract_and_process import DocumentProcessor, SkillProcessor, ProficiencyCalculator
@@ -26,6 +27,8 @@ logger = logging.getLogger('resume_api')
 
 # Initialize Flask app
 app = Flask(__name__)
+# Enable CORS for all routes
+CORS(app)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload size
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['RESULTS_FOLDER'] = 'api_results'
