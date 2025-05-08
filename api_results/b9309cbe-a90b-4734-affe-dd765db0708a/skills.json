@@ -1,0 +1,124 @@
+{
+  "file": "sample_resume.pdf",
+  "skills": [
+    {
+      "name": "3 Years",
+      "proficiency": "Intermediate",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Cross-functional Teams",
+      "proficiency": "Intermediate",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Docker",
+      "proficiency": "Beginner",
+      "confidence": 0.5,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Drag-and-drop Interface",
+      "proficiency": "Intermediate",
+      "confidence": 0.8,
+      "is_technical": false,
+      "is_backed": false
+    },
+    {
+      "name": "Express",
+      "proficiency": "Beginner",
+      "confidence": 0.5,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Git",
+      "proficiency": "Beginner",
+      "confidence": 0.5,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "JavaScript",
+      "proficiency": "Intermediate",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "MongoDB",
+      "proficiency": "Intermediate",
+      "confidence": 0.65,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Node.js",
+      "proficiency": "Intermediate",
+      "confidence": 0.8500000000000001,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Passion",
+      "proficiency": "Intermediate",
+      "confidence": 0.6,
+      "is_technical": false,
+      "is_backed": false
+    },
+    {
+      "name": "React",
+      "proficiency": "Intermediate",
+      "confidence": 0.65,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "React",
+      "proficiency": "Beginner",
+      "confidence": 0.5,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Real-time Updates",
+      "proficiency": "Intermediate",
+      "confidence": 0.8,
+      "is_technical": false,
+      "is_backed": false
+    },
+    {
+      "name": "Team",
+      "proficiency": "Intermediate",
+      "confidence": 0.55,
+      "is_technical": false,
+      "is_backed": false
+    },
+    {
+      "name": "Ui/ux Designers",
+      "proficiency": "Intermediate",
+      "confidence": 0.55,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Web Development",
+      "proficiency": "Beginner",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    }
+  ],
+  "certifications": [],
+  "industry": "technology",
+  "industry_scores": {
+    "technology": 0.43,
+    "design": 0.38,
+    "education": 0.11
+  }
+}

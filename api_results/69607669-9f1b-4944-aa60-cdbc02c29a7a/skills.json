@@ -1,0 +1,75 @@
+{
+  "file": "Resume_Updated_1.pdf",
+  "skills": [
+    {
+      "name": "CSS",
+      "proficiency": "Intermediate",
+      "confidence": 0.65,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Communication",
+      "proficiency": "Intermediate",
+      "confidence": 0.6,
+      "is_technical": false,
+      "is_backed": false
+    },
+    {
+      "name": "HTML",
+      "proficiency": "Intermediate",
+      "confidence": 0.75,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "JavaScript",
+      "proficiency": "Beginner",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Mobile Development",
+      "proficiency": "Intermediate",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Organization",
+      "proficiency": "Intermediate",
+      "confidence": 0.75,
+      "is_technical": false,
+      "is_backed": false
+    },
+    {
+      "name": "Passion",
+      "proficiency": "Intermediate",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Real-time Assistance",
+      "proficiency": "Intermediate",
+      "confidence": 0.6,
+      "is_technical": true,
+      "is_backed": false
+    },
+    {
+      "name": "Web Development",
+      "proficiency": "Intermediate",
+      "confidence": 0.8,
+      "is_technical": true,
+      "is_backed": false
+    }
+  ],
+  "certifications": [],
+  "industry": "technology",
+  "industry_scores": {
+    "technology": 0.33,
+    "hr": 0.33,
+    "education": 0.18
+  }
+}
